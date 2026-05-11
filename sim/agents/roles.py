@@ -23,6 +23,7 @@ class Mayor(BarangayAgent):
     HOME_ZONE = "resA"
     WORK_ZONE = "munhall"
     TRAIT_BIAS = {"ambition": 0.75, "competence": 0.65}
+    USES_MEMORY_STREAM = True
 
     SCHEDULE = [
         (5, 7,  "resA",       "sleeping"),
@@ -80,6 +81,7 @@ class ViceMayor(BarangayAgent):
     HOME_ZONE = "resA"
     WORK_ZONE = "munhall"
     TRAIT_BIAS = {"integrity": 0.60, "competence": 0.60}
+    USES_MEMORY_STREAM = True
 
     SCHEDULE = [
         (6, 8,  "resA",    "sleeping"),
@@ -133,6 +135,7 @@ class Councilor(BarangayAgent):
     HOME_ZONE = "resA"
     WORK_ZONE = "munhall"
     TRAIT_BIAS = {"ambition": 0.60}
+    USES_MEMORY_STREAM = True
 
     def _starting_wealth(self): return random.gauss(400_000, 60_000)
     def _base_income(self):     return random.gauss(1_500, 120)
@@ -167,6 +170,7 @@ class BarangayCaptain(BarangayAgent):
     HOME_ZONE = "resB"
     WORK_ZONE = "bgyhall"
     TRAIT_BIAS = {"family_loyalty": 0.65}
+    USES_MEMORY_STREAM = True
 
     def _starting_wealth(self): return random.gauss(200_000, 40_000)
     def _base_income(self):     return random.gauss(800, 100)
@@ -210,6 +214,7 @@ class Contractor(BarangayAgent):
     HOME_ZONE = "resA"
     WORK_ZONE = "contoffice"
     TRAIT_BIAS = {"greed": 0.70, "ambition": 0.65}
+    USES_MEMORY_STREAM = True
 
     def _starting_wealth(self): return random.gauss(500_000, 100_000)
     def _base_income(self):     return random.gauss(3_000, 500)
@@ -389,6 +394,7 @@ class PoliceOfficer(BarangayAgent):
     HOME_ZONE = "resB"
     WORK_ZONE = "police"
     TRAIT_BIAS = {"integrity": 0.50, "greed": 0.50}
+    USES_MEMORY_STREAM = True
 
     def _starting_wealth(self): return random.gauss(60_000, 10_000)
     def _base_income(self):     return random.gauss(500, 60)
@@ -425,6 +431,7 @@ class Journalist(BarangayAgent):
     HOME_ZONE = "resB"
     WORK_ZONE = "media"
     TRAIT_BIAS = {"integrity": 0.70, "ambition": 0.60}
+    USES_MEMORY_STREAM = True
 
     def _starting_wealth(self): return random.gauss(50_000, 8_000)
     def _base_income(self):     return random.gauss(450, 60)
@@ -469,6 +476,7 @@ class Auditor(BarangayAgent):
     HOME_ZONE = "resA"
     WORK_ZONE = "audit"
     TRAIT_BIAS = {"integrity": 0.75, "competence": 0.65}
+    USES_MEMORY_STREAM = True
 
     def _starting_wealth(self): return random.gauss(90_000, 15_000)
     def _base_income(self):     return random.gauss(700, 80)

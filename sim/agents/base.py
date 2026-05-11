@@ -8,6 +8,7 @@ import random
 from dataclasses import dataclass, field
 from typing import Optional, List
 from mesa import Agent
+from sim.agents.memory import MemoryStream, heuristic_importance
 
 
 # ── Trait ranges (all [0,1]) ───────────────────────────────────────────────
@@ -83,6 +84,8 @@ class BarangayAgent(Agent):
     HOME_ZONE: str = "resC"
     WORK_ZONE: str = "park"
     TRAIT_BIAS: dict = {}
+    # Political/key roles set this True to use the full Generative Agents memory stream
+    USES_MEMORY_STREAM: bool = False
 
     def __init__(self, unique_id: int, model, name: str,
                  family_id: Optional[str] = None,
@@ -115,8 +118,16 @@ class BarangayAgent(Agent):
         # Populated by RelationshipGraph, mirrored here for convenience
         self.relationships: dict[int, float] = {}
 
-        # ── Memory (rolling last 20 significant events) ─────────────────
+        # ── Memory ────────────────────────────────────────────────────────
+        # Political agents use a full Generative Agents memory stream;
+        # citizen agents keep the lightweight rolling buffer.
         self.memory: List[MemoryEntry] = []
+        if self.USES_MEMORY_STREAM:
+            self.memory_stream: Optional[MemoryStream] = MemoryStream(unique_id)
+            self.daily_plan: Optional[str] = None
+        else:
+            self.memory_stream = None
+            self.daily_plan = None
 
         # ── Satisfaction ───────────────────────────────────────────────
         self.satisfaction: float = random.uniform(40, 75)   # 0–100
@@ -255,16 +266,29 @@ class BarangayAgent(Agent):
 
     # ── Memory ────────────────────────────────────────────────────────────
 
-    def _log_memory(self, event: str, emotional_tag: str = "neutral"):
-        self.memory.append(
-            MemoryEntry(tick=self.model.clock.tick,
-                        event=event, emotional_tag=emotional_tag)
-        )
-        if len(self.memory) > 20:
-            self.memory.pop(0)
+    def _log_memory(self, event: str, emotional_tag: str = "neutral",
+                    importance: Optional[float] = None):
+        tick = self.model.clock.tick
+        if self.memory_stream is not None:
+            imp = importance if importance is not None else heuristic_importance(event)
+            self.memory_stream.add(
+                description=event,
+                tick=tick,
+                importance=imp,
+                memory_type="observation",
+                emotional_tag=emotional_tag,
+            )
+        else:
+            self.memory.append(MemoryEntry(tick=tick, event=event, emotional_tag=emotional_tag))
+            if len(self.memory) > 20:
+                self.memory.pop(0)
 
     def recent_memory_str(self) -> str:
-        """Format last 5 memories as a string for Qwen prompt."""
+        """Format recent memories for Qwen prompt context."""
+        if self.memory_stream is not None:
+            return self.memory_stream.recent_as_str(
+                self.model.clock.tick, top_k=5
+            )
         recent = self.memory[-5:]
         return "; ".join(f"[{m.event}]" for m in recent) or "no notable events"
 
@@ -284,4 +308,6 @@ class BarangayAgent(Agent):
             "goals":            [g.to_dict() for g in self.goals],
             "corrupt_acts":     self.corrupt_acts,
             "honest_acts":      self.honest_acts,
+            "daily_plan":       self.daily_plan,
+            "memory_stream":    self.memory_stream.to_dict() if self.memory_stream else None,
         }

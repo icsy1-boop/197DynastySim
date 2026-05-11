@@ -23,6 +23,10 @@ from sim.db.logger import SimLogger
 logger = logging.getLogger(__name__)
 
 
+def _outcome_emotion(outcome: str) -> str:
+    return {"positive": "satisfied", "negative": "frustrated"}.get(outcome, "neutral")
+
+
 class BarangayModel(Model):
     """
     One complete simulation environment.
@@ -118,19 +122,28 @@ class BarangayModel(Model):
         """
         One tick = one in-game hour.
         Order:
-          1. Run Qwen inference for agents that need a decision
-          2. Step all agents (Mesa scheduler)
-          3. Run interactions between co-located agents
-          4. Update global factors
-          5. Log state
-          6. Handle special events (elections, scandals)
-          7. Advance clock
+          1. Daily planning at 6am (political agents)
+          2. Run Qwen inference for agents that need a decision
+          3. Step all agents (Mesa scheduler)
+          4. Run interactions between co-located agents
+          5. Check reflection thresholds (Generative Agents)
+          6. Update global factors
+          7. Log state
+          8. Handle special events (elections, scandals)
+          9. Advance clock
         """
         tick = self.clock.tick
 
-        # 1. Qwen inference batch (political + triggered citizens)
+        # 1. Generate daily plans at 6am
+        if self.clock.hour == 6:
+            self._run_daily_planning()
+
+        # 2. Qwen inference batch (political + triggered citizens)
         if tick % self.INFERENCE_INTERVAL == 0:
             self._run_inference_batch()
+
+        # 2b. Check if any political agents need to reflect
+        self._check_reflections()
 
         # 2. Step all agents (shuffled for fairness)
         for agent in list(self._agents_list):
@@ -244,8 +257,8 @@ class BarangayModel(Model):
                 agent.pending_action = action
                 # Log corruption acts immediately for tracking
                 if action.get("corruption"):
-                    declared = action.get("declared_budget", 0) or 0
-                    actual   = action.get("actual_budget", declared) or declared
+                    declared = float(action.get("declared_budget") or 0)
+                    actual   = float(action.get("actual_budget") or declared)
                     self.db.log_corruption_act(
                         self.clock.tick,
                         agent.unique_id, agent.name,
@@ -259,65 +272,85 @@ class BarangayModel(Model):
     def _run_interactions(self):
         """
         For each location, pair up co-located agents for interaction.
-        Only run for non-trivial locations (not residential zones during sleep).
+        Political pairs are batched through Qwen; citizens use rule-based logic.
         """
+        from sim.agents.roles import (Mayor, ViceMayor, Councilor, BarangayCaptain,
+                                       Contractor, Journalist, Auditor, PoliceOfficer)
+        political = (Mayor, ViceMayor, Councilor, BarangayCaptain,
+                     Contractor, Journalist, Auditor, PoliceOfficer)
+
+        agent_map = {a.unique_id: a for a in self._agents_list}
+        world_state = {**self.global_factors.to_dict(), **self.clock.to_dict()}
+
+        political_pairs: list = []
+        citizen_pairs:   list = []
+
         active_locs = [
             k for k, loc in self.locations.items()
-            if (len(loc.current_agents) >= 2 and
-                loc.zone_type not in ("residential",) or
-                self.clock.hour in range(8, 22))
+            if len(loc.current_agents) >= 2
+            and (loc.zone_type not in ("residential",) or self.clock.hour in range(8, 22))
         ]
 
         for loc_key in active_locs:
             loc = self.locations[loc_key]
-            if len(loc.current_agents) < 2:
+            present_ids = loc.current_agents[:20]
+            if len(present_ids) < 2:
                 continue
-
-            # Sample up to 3 pairs per location per tick
-            present = loc.current_agents[:20]   # cap for performance
-            pairs_to_run = min(3, len(present) // 2)
-
+            pairs_to_run = min(3, len(present_ids) // 2)
             for _ in range(pairs_to_run):
-                if len(present) < 2:
+                if len(present_ids) < 2:
                     break
-                a_id, b_id = random.sample(present, 2)
-                self._interact_pair(a_id, b_id)
+                a_id, b_id = random.sample(present_ids, 2)
+                a = agent_map.get(a_id)
+                b = agent_map.get(b_id)
+                if not a or not b:
+                    continue
+                if isinstance(a, political) and isinstance(b, political):
+                    political_pairs.append((a, b))
+                else:
+                    citizen_pairs.append((a, b))
 
-    def _interact_pair(self, a_id: int, b_id: int):
-        """
-        Run a single interaction between two agents.
-        Uses Qwen if both are political, rule-based otherwise.
-        """
-        agent_map = {a.unique_id: a for a in self._agents_list}
-        a = agent_map.get(a_id)
-        b = agent_map.get(b_id)
-        if not a or not b:
-            return
+        # Batch political interactions through Qwen
+        if political_pairs:
+            results = self.qwen.interact_batch(political_pairs, world_state)
+            for (a, b), result in zip(political_pairs, results):
+                if result:
+                    outcome = result.get("outcome", "neutral")
+                    dialogue = result.get("dialogue", "")
+                    rel_delta = float(result.get("relationship_delta", 0.0))
+                    self.rel_graph.update_trust(a.unique_id, b.unique_id, rel_delta)
+                    self.rel_graph.update_trust(b.unique_id, a.unique_id, rel_delta * 0.5)
+                    if dialogue:
+                        emotion = _outcome_emotion(outcome)
+                        a._log_memory(f"Spoke with {b.name}: '{dialogue}'", emotional_tag=emotion)
+                        b._log_memory(f"Spoke with {a.name}", emotional_tag=emotion)
+                        self.db.log_conversation(
+                            tick=self.clock.tick,
+                            year=self.clock.year,
+                            day=self.clock.day,
+                            hour=self.clock.hour,
+                            agent_a_id=a.unique_id,
+                            agent_a_name=a.name,
+                            agent_b_id=b.unique_id,
+                            agent_b_name=b.name,
+                            dialogue=dialogue,
+                            outcome=outcome,
+                            location=a.current_location,
+                        )
+                else:
+                    trust = self.rel_graph.get_trust(a.unique_id, b.unique_id)
+                    outcome = "positive" if trust > 0.5 else ("negative" if trust < -0.2 else "neutral")
+                    self.rel_graph.interact(a.unique_id, b.unique_id, outcome)
+                    self.rel_graph.interact(b.unique_id, a.unique_id, outcome)
 
-        from sim.agents.roles import (Mayor, ViceMayor, Councilor,
-                                       Contractor, Journalist)
-        political = (Mayor, ViceMayor, Councilor, Contractor, Journalist)
+                # Dynasty family cover mechanic
+                if (self.dynasty_enabled and
+                        getattr(a, "family_id", None) and
+                        getattr(a, "family_id", None) == getattr(b, "family_id", None)):
+                    self.rel_graph.cover_for(a.unique_id, b.unique_id)
 
-        if isinstance(a, political) and isinstance(b, political):
-            # Qwen interaction (single call, batched in next cycle)
-            # For now: rule-based with relationship influence
-            trust_a_b = self.rel_graph.get_trust(a_id, b_id)
-            if trust_a_b > 0.5:
-                outcome = "positive"
-            elif trust_a_b < -0.2:
-                outcome = "negative"
-            else:
-                outcome = "neutral"
-            new_trust = self.rel_graph.interact(a_id, b_id, outcome)
-            self.rel_graph.interact(b_id, a_id, outcome)   # asymmetric update
-
-            # Family cover mechanic — dynasty only
-            if (self.dynasty_enabled and
-                    getattr(a, "family_id", None) and
-                    getattr(a, "family_id", None) == getattr(b, "family_id", None)):
-                self.rel_graph.cover_for(a_id, b_id)
-        else:
-            # Citizen interaction: simple satisfaction exchange
+        # Citizen interactions: simple satisfaction averaging
+        for a, b in citizen_pairs:
             avg_sat = (a.satisfaction + b.satisfaction) / 2
             a.satisfaction = a.satisfaction * 0.95 + avg_sat * 0.05
             b.satisfaction = b.satisfaction * 0.95 + avg_sat * 0.05
@@ -427,6 +460,65 @@ class BarangayModel(Model):
             "type":       event_type,
             "description": description,
         })
+
+    def _run_daily_planning(self):
+        """Generate daily plans for all political agents at 6am sim time."""
+        from sim.agents.roles import (Mayor, ViceMayor, Councilor, BarangayCaptain,
+                                       Contractor, Journalist, Auditor, PoliceOfficer)
+        political_roles = (Mayor, ViceMayor, Councilor, BarangayCaptain,
+                           Contractor, Journalist, Auditor, PoliceOfficer)
+        plannable = [a for a in self._agents_list if isinstance(a, political_roles)]
+        if not plannable:
+            return
+
+        world_state = {**self.global_factors.to_dict(), **self.clock.to_dict()}
+        plans = self.qwen.generate_daily_plans(plannable, world_state)
+
+        for agent in plannable:
+            plan = plans.get(agent.unique_id)
+            if plan:
+                agent.daily_plan = plan.get("plan", "")
+                if agent.memory_stream and agent.daily_plan:
+                    agent.memory_stream.add(
+                        description=f"Plan for today: {agent.daily_plan}",
+                        tick=self.clock.tick,
+                        importance=5.0,
+                        memory_type="plan",
+                    )
+
+    def _check_reflections(self):
+        """Trigger Generative Agents reflection for any political agent past the threshold."""
+        for agent in self._agents_list:
+            if not agent.memory_stream:
+                continue
+            if not agent.memory_stream.should_reflect():
+                continue
+            recent = agent.memory_stream.retrieve(
+                query="most significant recent events",
+                current_tick=self.clock.tick,
+                top_k=10,
+            )
+            summary = "; ".join(m.description for m in recent[:5])
+            result = self.qwen.reflect(agent, summary)
+            if result:
+                entry_text = result.get("memory_entry", "")
+                importance = float(result.get("importance", 6))
+                mood = result.get("mood", "neutral")
+                if entry_text:
+                    agent.memory_stream.add(
+                        description=entry_text,
+                        tick=self.clock.tick,
+                        importance=importance,
+                        memory_type="reflection",
+                        emotional_tag=mood,
+                    )
+                goal_shift = result.get("goal_shift")
+                if goal_shift:
+                    for g in agent.goals:
+                        if g.key == goal_shift:
+                            g.priority = min(1.0, g.priority + 0.1)
+                            break
+            agent.memory_stream.mark_reflected()
 
     def _update_dynasty_score(self):
         office_holders = [

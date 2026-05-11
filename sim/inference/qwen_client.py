@@ -3,6 +3,11 @@ inference/qwen_client.py
 Handles all communication with the vLLM Qwen endpoint on VM A.
 Builds prompts from agent state, sends batched requests,
 parses JSON responses back into action dicts.
+
+Generative Agents additions (Park et al. 2023):
+  - score_importance_batch(): rate memory importance 1-10
+  - generate_daily_plans(): produce daily schedules for political agents
+  - reflect(): extended to include importance score in output
 """
 
 import json
@@ -24,9 +29,9 @@ logger = logging.getLogger(__name__)
 @dataclass
 class QwenConfig:
     base_url: str = "http://localhost:8000"   # VM A address
-    model:    str = "Qwen/Qwen-14B"
+    model:    str = "huihui-ai/Huihui-Qwen3.5-0.8B-abliterated"
     timeout:  int = 30                        # seconds per request
-    max_tokens: int = 256
+    max_tokens: int = 512
     temperature: float = 0.7
 
 
@@ -44,12 +49,16 @@ class QwenClient:
         if not REQUESTS_AVAILABLE:
             logger.warning("requests not installed — running in offline mode")
             return False
-        try:
-            r = requests.get(f"{self.cfg.base_url}/health", timeout=3)
-            return r.status_code == 200
-        except Exception:
-            logger.warning("Qwen endpoint not reachable — using rule-based fallback")
-            return False
+        for path in ("/health", "/v1/models"):
+            try:
+                r = requests.get(f"{self.cfg.base_url}{path}", timeout=3)
+                if r.status_code == 200:
+                    logger.info(f"Qwen endpoint reachable via {path}")
+                    return True
+            except Exception:
+                pass
+        logger.warning("Qwen endpoint not reachable — using rule-based fallback")
+        return False
 
     # ── Prompt construction ───────────────────────────────────────────────
 
@@ -64,7 +73,7 @@ You are interacting with {target_agent.name} ({target_agent.ROLE}).
 Your current trust in them: {agent.relationships.get(target_agent.unique_id, 0.0):.2f}
 
 How do you interact? Reply ONLY in JSON:
-{{"dialogue": "<one sentence>", "relationship_delta": <float -0.1 to 0.1>, "favor_offered": <true/false>, "outcome": "<positive|negative|neutral>"}}"""
+{{"dialogue": "<one sentence spoken aloud>", "relationship_delta": <float -0.1 to 0.1>, "favor_offered": <true/false>, "outcome": "<positive|negative|neutral>"}}"""
 
     def build_decision_prompt(self, agent, world_state: dict,
                                available_actions: list) -> str:
@@ -76,6 +85,10 @@ How do you interact? Reply ONLY in JSON:
         if agent.family_id and agent.dynasty_enabled:
             family_note = f"You are part of the {agent.family_id} political family. Family interests matter to you."
 
+        plan_note = ""
+        if getattr(agent, "daily_plan", None):
+            plan_note = f"Your plan for today: {agent.daily_plan}"
+
         actions_str = "\n".join(
             f'  - "{a["id"]}": {a["desc"]} (corruption risk: {a.get("risk","low")})'
             for a in available_actions
@@ -85,6 +98,7 @@ How do you interact? Reply ONLY in JSON:
 {family_note}
 Traits: integrity={agent.traits.integrity:.2f}, greed={agent.traits.greed:.2f}, ambition={agent.traits.ambition:.2f}, competence={agent.traits.competence:.2f}
 Goals: {goals_str}
+{plan_note}
 Recent memory: {agent.recent_memory_str()}
 Personal wealth: ₱{agent.personal_wealth:,.0f} | Satisfaction: {agent.satisfaction:.0f}/100
 
@@ -105,58 +119,81 @@ Something significant just happened: {event_summary}
 Your traits: integrity={agent.traits.integrity:.2f}, greed={agent.traits.greed:.2f}
 Recent memory: {agent.recent_memory_str()}
 
-How do you feel and what do you remember from this? Reply ONLY in JSON:
-{{"memory_entry": "<one sentence>", "mood": "<satisfied|frustrated|fearful|angry|neutral>", "goal_shift": "<goal_key or null>", "grudge_target": "<agent_name or null>"}}"""
+How do you feel and what insight do you take from this? Reply ONLY in JSON:
+{{"memory_entry": "<one sentence insight>", "importance": <int 1-10>, "mood": "<satisfied|frustrated|fearful|angry|neutral>", "goal_shift": "<goal_key or null>", "grudge_target": "<agent_name or null>"}}"""
+
+    def build_importance_prompt(self, description: str) -> str:
+        return f"""Rate the long-term importance of this memory for a political figure in a Philippine municipality.
+Memory: "{description}"
+
+1 = trivial daily routine, 5 = moderately significant, 10 = politically life-changing.
+Reply ONLY in JSON: {{"importance": <int 1-10>, "reason": "<three words>"}}"""
+
+    def build_daily_plan_prompt(self, agent, world_state: dict) -> str:
+        goals_str = "; ".join(g.label for g in agent.goals)
+        family_note = ""
+        if agent.family_id and agent.dynasty_enabled:
+            family_note = f"You are part of the {agent.family_id} family."
+        return f"""You are {agent.name}, {agent.ROLE} in Barangay Mabuhay.
+{family_note}
+Today is Year {world_state.get('year', 1)}, Day {world_state.get('day', 1)}.
+Your goals: {goals_str}
+Recent memory: {agent.recent_memory_str()}
+World: corruption={world_state['corruption_index']:.2f}, welfare={world_state['welfare_index']:.2f}, unrest={world_state['unrest_level']:.2f}
+
+Write your plan for today in 1-2 sentences describing your main intentions.
+Reply ONLY in JSON:
+{{"plan": "<1-2 sentence plan>", "priority_action": "<action_id>", "risk_appetite": <float 0-1>}}"""
 
     # ── Sending ───────────────────────────────────────────────────────────
 
-    def _send_batch(self, prompts: list[str]) -> list[Optional[dict]]:
+    def _send_batch(self, prompts: list[str],
+                    max_tokens: Optional[int] = None) -> list[Optional[dict]]:
         """
         Send a batch of prompts to vLLM.
-        vLLM's /v1/completions accepts multiple prompts in one call.
         Returns list of parsed dicts (None on parse failure).
         """
         if not self._available or not REQUESTS_AVAILABLE:
             return [None] * len(prompts)
 
-        payload = {
-            "model":       self.cfg.model,
-            "prompt":      prompts,
-            "max_tokens":  self.cfg.max_tokens,
-            "temperature": self.cfg.temperature,
-            "stop":        ["\n\n", "```"],
-        }
-
-        try:
-            t0 = time.time()
-            response = requests.post(
-                f"{self.cfg.base_url}/v1/completions",
-                json=payload,
-                timeout=self.cfg.timeout,
-            )
-            elapsed = time.time() - t0
-            logger.debug(f"Qwen batch ({len(prompts)} prompts) took {elapsed:.2f}s")
-
-            data = response.json()
-            results = []
-            for choice in data.get("choices", []):
-                text = choice.get("text", "").strip()
+        results = []
+        t0 = time.time()
+        for prompt in prompts:
+            payload = {
+                "model":       self.cfg.model,
+                "messages":    [{"role": "user", "content": prompt}],
+                "max_tokens":  max_tokens or self.cfg.max_tokens,
+                "temperature": self.cfg.temperature,
+            }
+            try:
+                response = requests.post(
+                    f"{self.cfg.base_url}/v1/chat/completions",
+                    json=payload,
+                    timeout=self.cfg.timeout,
+                )
+                data = response.json()
+                choice = data.get("choices", [{}])[0]
+                text = (choice.get("message") or {}).get("content", "").strip()
+                # strip optional markdown code fences
+                if "```" in text:
+                    text = text.split("```")[1].strip()
+                    if text.startswith("json"):
+                        text = text[4:].strip()
+                # Qwen3 thinking models may wrap answer in <think>...</think>
+                if "</think>" in text:
+                    text = text.split("</think>", 1)[-1].strip()
                 try:
-                    # Strip markdown fences if present
-                    if "```" in text:
-                        text = text.split("```")[1].strip()
-                        if text.startswith("json"):
-                            text = text[4:].strip()
                     results.append(json.loads(text))
                 except json.JSONDecodeError:
                     logger.warning(f"Failed to parse Qwen response: {text[:80]}")
                     results.append(None)
-            return results
-
-        except Exception as e:
-            logger.error(f"Qwen request failed: {e}")
-            self._available = False
-            return [None] * len(prompts)
+            except Exception as e:
+                logger.error(f"Qwen request failed: {e}")
+                self._available = False
+                results.append(None)
+        elapsed = time.time() - t0
+        logger.debug(f"Qwen batch ({len(prompts)} prompts) took {elapsed:.2f}s")
+        return results
 
     # ── Public API ────────────────────────────────────────────────────────
 
@@ -179,7 +216,6 @@ How do you feel and what do you remember from this? Reply ONLY in JSON:
                 result[agent.unique_id] = resp
                 logger.debug(f"  {agent.name} → {resp.get('action_id')}")
             else:
-                # Fallback to rule-based (pending_action stays None)
                 result[agent.unique_id] = None
         return result
 
@@ -187,7 +223,7 @@ How do you feel and what do you remember from this? Reply ONLY in JSON:
                        world_state: dict) -> list[Optional[dict]]:
         """
         pairs = [(agent_a, agent_b), ...]
-        Returns list of interaction dicts.
+        Returns list of interaction dicts including 'dialogue' field.
         """
         prompts = [
             self.build_interaction_prompt(a, b, world_state)
@@ -196,12 +232,64 @@ How do you feel and what do you remember from this? Reply ONLY in JSON:
         return self._send_batch(prompts)
 
     def reflect(self, agent, event_summary: str) -> Optional[dict]:
-        """Single reflect call — only used for major events."""
+        """Single reflect call — for major events and periodic reflection."""
         result = self._send_batch([self.build_reflect_prompt(agent, event_summary)])
         return result[0] if result else None
 
+    def score_importance_batch(self, descriptions: list[str]) -> list[float]:
+        """
+        Score importance (1-10) for a list of memory descriptions.
+        Falls back to keyword heuristic when Qwen offline.
+        """
+        from sim.agents.memory import heuristic_importance
+
+        if not self._available or not REQUESTS_AVAILABLE:
+            return [heuristic_importance(d) for d in descriptions]
+
+        prompts = [self.build_importance_prompt(d) for d in descriptions]
+        responses = self._send_batch(prompts, max_tokens=64)
+
+        scores = []
+        for i, resp in enumerate(responses):
+            if resp and isinstance(resp.get("importance"), (int, float)):
+                scores.append(float(max(1, min(10, resp["importance"]))))
+            else:
+                scores.append(heuristic_importance(descriptions[i]))
+        return scores
+
+    def generate_daily_plans(self, agents: list,
+                             world_state: dict) -> dict[int, Optional[dict]]:
+        """
+        Generate a daily plan for each political agent at 6am sim time.
+        Returns {agent_id: plan_dict} where plan_dict has 'plan', 'priority_action', 'risk_appetite'.
+        """
+        if not agents:
+            return {}
+
+        prompts = [self.build_daily_plan_prompt(a, world_state) for a in agents]
+        responses = self._send_batch(prompts, max_tokens=128)
+
+        result = {}
+        for agent, resp in zip(agents, responses):
+            if resp and isinstance(resp.get("plan"), str):
+                result[agent.unique_id] = resp
+            else:
+                # Fallback: generate a minimal rule-based plan
+                result[agent.unique_id] = _fallback_plan(agent)
+        return result
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────
+
+def _fallback_plan(agent) -> dict:
+    """Simple rule-based daily plan when Qwen is offline."""
+    goal_label = agent.goals[0].label if agent.goals else "fulfill duties"
+    return {
+        "plan": f"Focus on {goal_label} and carry out scheduled responsibilities.",
+        "priority_action": "office_work",
+        "risk_appetite": agent.traits.greed * (1 - agent.traits.integrity),
+    }
+
 
 def _get_available_actions(agent) -> list:
     """

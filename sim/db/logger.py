@@ -32,7 +32,8 @@ class SimLogger:
         self.log_dir.mkdir(parents=True, exist_ok=True)
 
         self._conn: Optional[sqlite3.Connection] = None
-        self._day_buffer: list = []   # events buffered for current day JSON
+        self._day_buffer: list = []               # events buffered for current day JSON
+        self._day_buffer_conversations: list = [] # conversations buffered for day JSON
         self._current_day: int = 0
 
         self._init_db()
@@ -110,9 +111,26 @@ class SimLogger:
             detected        INTEGER DEFAULT 0
         );
 
+        CREATE TABLE IF NOT EXISTS conversations (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            tick        INTEGER,
+            year        INTEGER,
+            day         INTEGER,
+            hour        INTEGER,
+            agent_a_id  INTEGER,
+            agent_a_name TEXT,
+            agent_b_id  INTEGER,
+            agent_b_name TEXT,
+            dialogue    TEXT,
+            outcome     TEXT,
+            location    TEXT
+        );
+
         CREATE INDEX IF NOT EXISTS idx_events_tick   ON events(tick);
         CREATE INDEX IF NOT EXISTS idx_events_type   ON events(event_type);
         CREATE INDEX IF NOT EXISTS idx_agent_state_tick ON agent_state(tick);
+        CREATE INDEX IF NOT EXISTS idx_conv_day      ON conversations(year, day);
+        CREATE INDEX IF NOT EXISTS idx_conv_agents   ON conversations(agent_a_id, agent_b_id);
         """)
         self._conn.commit()
         logger.info(f"Database initialized at {self.db_path}")
@@ -186,6 +204,25 @@ class SimLogger:
               declared, actual, leakage, int(detected)))
         self._conn.commit()
 
+    def log_conversation(self, tick: int, year: int, day: int, hour: int,
+                         agent_a_id: int, agent_a_name: str,
+                         agent_b_id: int, agent_b_name: str,
+                         dialogue: str, outcome: str, location: str):
+        c = self._conn.cursor()
+        c.execute("""
+            INSERT INTO conversations
+            (tick,year,day,hour,agent_a_id,agent_a_name,agent_b_id,agent_b_name,dialogue,outcome,location)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)
+        """, (tick, year, day, hour, agent_a_id, agent_a_name,
+              agent_b_id, agent_b_name, dialogue, outcome, location))
+        self._conn.commit()
+        self._day_buffer_conversations.append({
+            "tick": tick, "hour": hour,
+            "agent_a_id": agent_a_id, "agent_a_name": agent_a_name,
+            "agent_b_id": agent_b_id, "agent_b_name": agent_b_name,
+            "dialogue": dialogue, "outcome": outcome, "location": location,
+        })
+
     def log_relationships(self, tick: int, graph):
         """Log a snapshot of the relationship graph — done daily, not every tick."""
         c = self._conn.cursor()
@@ -207,13 +244,14 @@ class SimLogger:
         Frontend loads these for replay.
         """
         snapshot = {
-            "run_id":       self.run_id,
-            "year":         year,
-            "day":          day,
-            "global":       factors.to_dict(),
-            "clock":        clock.to_dict(),
-            "agents":       [a.to_dict() for a in agents],
-            "events":       list(self._day_buffer),
+            "run_id":        self.run_id,
+            "year":          year,
+            "day":           day,
+            "global":        factors.to_dict(),
+            "clock":         clock.to_dict(),
+            "agents":        [a.to_dict() for a in agents],
+            "events":        list(self._day_buffer),
+            "conversations": list(self._day_buffer_conversations),
             "relationships": graph.summary(),
         }
 
@@ -222,6 +260,7 @@ class SimLogger:
             json.dump(snapshot, f, separators=(",", ":"))
 
         self._day_buffer = []
+        self._day_buffer_conversations = []
         logger.debug(f"Flushed day snapshot → {path.name}")
 
     # ── Checkpoint ────────────────────────────────────────────────────────
