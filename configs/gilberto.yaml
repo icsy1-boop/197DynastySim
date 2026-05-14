@@ -1,0 +1,19 @@
+# configs/gilberto.yaml
+# Governor Gilberto Tatlonghari — the dynasty patriarch.
+# Run: onit --config configs/gilberto.yaml --a2a --a2a-port 9001
+
+serving:
+  model: Qwen/Qwen2.5-27B-Instruct
+  api_base: http://localhost:8000/v1
+  think: true
+  max_tokens: 1024
+  temperature: 0.7
+
+persona: "Gilberto Tatlonghari, 67, Governor of Mabuhay Province, Tatlonghari dynasty patriarch"
+template_path: "templates/gilberto_template.yaml"
+
+mcp:
+  servers:
+    - name: DynastyMCPServer
+      url: http://127.0.0.1:18200/sse
+      enabled: true

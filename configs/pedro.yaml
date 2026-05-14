@@ -1,0 +1,19 @@
+# configs/pedro.yaml
+# Board Member Pedro Tatlonghari — son of Gilberto, future succession candidate.
+# Run: onit --config configs/pedro.yaml --a2a --a2a-port 9003
+
+serving:
+  model: Qwen/Qwen2.5-27B-Instruct
+  api_base: http://localhost:8000/v1
+  think: true
+  max_tokens: 1024
+  temperature: 0.6
+
+persona: "Pedro Tatlonghari, 38, Provincial Board Member, son of Governor Gilberto"
+template_path: "templates/pedro_template.yaml"
+
+mcp:
+  servers:
+    - name: DynastyMCPServer
+      url: http://127.0.0.1:18200/sse
+      enabled: true

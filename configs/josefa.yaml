@@ -1,0 +1,18 @@
+# configs/josefa.yaml
+# Run: onit --config configs/josefa.yaml --a2a --a2a-port 9009
+
+serving:
+  model: Qwen/Qwen2.5-27B-Instruct   # verify: curl http://localhost:8000/v1/models
+  api_base: http://localhost:8000/v1
+  think: true
+  max_tokens: 1024
+  temperature: 0.7
+
+persona: "Josefa Soriano, 38, Provincial Board Member, independent — reform-minded rival"
+template_path: "templates/josefa_template.yaml"
+
+mcp:
+  servers:
+    - name: DynastyMCPServer
+      url: http://127.0.0.1:18200/sse
+      enabled: true

@@ -1,0 +1,19 @@
+# configs/isadora.yaml
+# Vice-Governor Isadora Tatlonghari — spouse of Gilberto, future governor candidate.
+# Run: onit --config configs/isadora.yaml --a2a --a2a-port 9002
+
+serving:
+  model: Qwen/Qwen2.5-27B-Instruct
+  api_base: http://localhost:8000/v1
+  think: true
+  max_tokens: 1024
+  temperature: 0.6
+
+persona: "Isadora Tatlonghari, 69, Vice-Governor of Mabuhay Province, spouse of the Governor"
+template_path: "templates/isadora_template.yaml"
+
+mcp:
+  servers:
+    - name: DynastyMCPServer
+      url: http://127.0.0.1:18200/sse
+      enabled: true

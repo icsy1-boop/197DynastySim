@@ -1,0 +1,18 @@
+# configs/joselito.yaml
+# Run: onit --config configs/joselito.yaml --a2a --a2a-port 9010
+
+serving:
+  model: Qwen/Qwen2.5-27B-Instruct   # verify: curl http://localhost:8000/v1/models
+  api_base: http://localhost:8000/v1
+  think: true
+  max_tokens: 1024
+  temperature: 0.8
+
+persona: "Joselito Valdez, 63, independent Mayor — main rival to Tatlonghari dynasty"
+template_path: "templates/joselito_template.yaml"
+
+mcp:
+  servers:
+    - name: DynastyMCPServer
+      url: http://127.0.0.1:18200/sse
+      enabled: true

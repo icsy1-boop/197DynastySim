@@ -1,0 +1,19 @@
+# configs/noel.yaml
+# Mayor Noel Tatlonghari — brother of Gilberto, most corrupt family member (integrity=0.11).
+# Run: onit --config configs/noel.yaml --a2a --a2a-port 9005
+
+serving:
+  model: Qwen/Qwen2.5-27B-Instruct
+  api_base: http://localhost:8000/v1
+  think: true
+  max_tokens: 1024
+  temperature: 0.8
+
+persona: "Noel Tatlonghari, 56, Mayor of San Isidro, brother of Governor Gilberto"
+template_path: "templates/noel_template.yaml"
+
+mcp:
+  servers:
+    - name: DynastyMCPServer
+      url: http://127.0.0.1:18200/sse
+      enabled: true

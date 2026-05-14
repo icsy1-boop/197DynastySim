@@ -1,0 +1,19 @@
+# configs/esperanza.yaml
+# Journalist Esperanza Garcia — niece-in-law of Noel, dynasty's internal antagonist.
+# Run: onit --config configs/esperanza.yaml --a2a --a2a-port 9008
+
+serving:
+  model: Qwen/Qwen2.5-27B-Instruct
+  api_base: http://localhost:8000/v1
+  think: true
+  max_tokens: 1024
+  temperature: 0.7
+
+persona: "Esperanza Garcia, 21, investigative journalist, niece-in-law of Mayor Noel Tatlonghari"
+template_path: "templates/esperanza_template.yaml"
+
+mcp:
+  servers:
+    - name: DynastyMCPServer
+      url: http://127.0.0.1:18200/sse
+      enabled: true

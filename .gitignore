@@ -1,0 +1,21 @@
+# virtual environments
+dynasty/
+venv/
+sim/Lib/
+sim/pyvenv.cfg
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# simulation outputs
+output/
+logs/
+*.db
+*.db-shm
+*.db-wal
+
+# editor
+.vscode/
+*.code-workspace

@@ -1,0 +1,19 @@
+# configs/nicanor.yaml
+# Contractor Nicanor Ong — son-in-law of Gilberto, greed=1.0 (maximum).
+# Run: onit --config configs/nicanor.yaml --a2a --a2a-port 9007
+
+serving:
+  model: Qwen/Qwen2.5-27B-Instruct
+  api_base: http://localhost:8000/v1
+  think: true
+  max_tokens: 1024
+  temperature: 0.7
+
+persona: "Nicanor Ong, 45, government contractor, son-in-law of Governor Gilberto Tatlonghari"
+template_path: "templates/nicanor_template.yaml"
+
+mcp:
+  servers:
+    - name: DynastyMCPServer
+      url: http://127.0.0.1:18200/sse
+      enabled: true

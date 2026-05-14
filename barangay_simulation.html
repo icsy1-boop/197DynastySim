@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Mabuhay Province — Simulation 2020-2026</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323:wght@400&display=swap');
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: #1a1a2e;
+  font-family: 'VT323', monospace;
+  color: #e8e0c8;
+  overflow: hidden;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+#top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 14px;
+  background: #0d0d1a;
+  border-bottom: 2px solid #8b1a1a;
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+#top-bar h1 {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  color: #f5c842;
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+
+.stat-pills {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pill {
+  font-size: 13px;
+  padding: 2px 8px;
+  border: 1px solid #444;
+  border-radius: 2px;
+  background: #111;
+  white-space: nowrap;
+}
+
+.pill span { color: #f5c842; }
+.pill.warn span { color: #ef4444; }
+
+#sim-area {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  position: relative;
+}
+
+#canvas-wrap {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+canvas {
+  display: block;
+  image-rendering: pixelated;
+}
+
+#sidebar {
+  width: 210px;
+  background: #0d0d1a;
+  border-left: 2px solid #8b1a1a;
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  overflow: hidden;
+}
+
+#sidebar h2 {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  color: #f5c842;
+  padding: 8px;
+  border-bottom: 1px solid #333;
+  flex-shrink: 0;
+}
+
+#event-log {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+#event-log::-webkit-scrollbar { width: 4px; }
+#event-log::-webkit-scrollbar-track { background: #111; }
+#event-log::-webkit-scrollbar-thumb { background: #8b1a1a; }
+
+.event-item {
+  font-size: 12px;
+  color: #aaa;
+  border-left: 2px solid #333;
+  padding-left: 5px;
+  line-height: 1.3;
+  animation: fadeIn .3s ease;
+}
+.event-item.political  { border-color: #a855f7; color: #d8b4fe; }
+.event-item.crime      { border-color: #ef4444; color: #fca5a5; }
+.event-item.civic      { border-color: #22c55e; color: #86efac; }
+.event-item.economy    { border-color: #f5c842; color: #fde68a; }
+.event-item.pandemic   { border-color: #f97316; color: #fdba74; }
+
+@keyframes fadeIn { from { opacity:0; transform: translateX(-4px); } to { opacity:1; transform: none; } }
+
+#agent-tooltip {
+  position: absolute;
+  background: #0d0d1aee;
+  border: 1px solid #f5c842;
+  padding: 7px 10px;
+  font-size: 13px;
+  pointer-events: none;
+  display: none;
+  z-index: 10;
+  min-width: 150px;
+  line-height: 1.7;
+}
+#agent-tooltip .name { color: #f5c842; font-size: 14px; }
+#agent-tooltip .role { color: #aaa; font-size: 12px; }
+
+#bottom-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 12px;
+  background: #0d0d1a;
+  border-top: 2px solid #8b1a1a;
+  flex-shrink: 0;
+  font-size: 13px;
+}
+
+.ctrl-btn {
+  font-family: 'VT323', monospace;
+  font-size: 15px;
+  background: #8b1a1a;
+  color: #f5c842;
+  border: none;
+  padding: 3px 12px;
+  cursor: pointer;
+  letter-spacing: 1px;
+}
+.ctrl-btn:hover { background: #b91c1c; }
+
+.scenario-btn {
+  font-family: 'VT323', monospace;
+  font-size: 13px;
+  background: #1a1a3a;
+  color: #aaa;
+  border: 1px solid #444;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.scenario-btn.active { background: #4b0082; color: #f5c842; border-color: #a855f7; }
+
+#clock { color: #f5c842; font-size: 16px; margin-left: auto; }
+
+.legend-row { display: flex; align-items: center; gap: 6px; padding: 3px 8px; font-size: 12px; }
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+
+#pandemic-banner {
+  display: none;
+  background: #7c2d12;
+  color: #fed7aa;
+  font-size: 12px;
+  text-align: center;
+  padding: 3px;
+  font-family: 'VT323', monospace;
+  letter-spacing: 1px;
+  border-bottom: 1px solid #ef4444;
+}
+</style>
+</head>
+<body>
+
+<div id="pandemic-banner">⚠ COVID-19 LOCKDOWN ACTIVE — Movement restricted</div>
+
+<div id="top-bar">
+  <h1>MABUHAY PROVINCE — 2020-2026</h1>
+  <div class="stat-pills">
+    <div class="pill">Pop: <span id="s-pop">1000</span></div>
+    <div class="pill" id="pill-corr">Corruption: <span id="s-corr">25%</span></div>
+    <div class="pill">Welfare: <span id="s-welf">55</span></div>
+    <div class="pill">Unrest: <span id="s-unrest">15</span></div>
+    <div class="pill" id="pill-pand">Pandemic: <span id="s-pand">0</span></div>
+    <div class="pill">Scenario: <span id="s-scenario">Dynasty</span></div>
+  </div>
+</div>
+
+<div id="sim-area">
+  <div id="canvas-wrap">
+    <canvas id="c"></canvas>
+    <div id="agent-tooltip">
+      <div class="name" id="tt-name"></div>
+      <div class="role" id="tt-role"></div>
+      <div id="tt-status"></div>
+      <div id="tt-dest"></div>
+    </div>
+  </div>
+
+  <div id="sidebar">
+    <h2>EVENT LOG</h2>
+    <div style="padding:4px 8px; border-bottom:1px solid #222;">
+      <div class="legend-row"><div class="legend-dot" style="background:#a855f7"></div>Political</div>
+      <div class="legend-row"><div class="legend-dot" style="background:#ef4444"></div>Corruption</div>
+      <div class="legend-row"><div class="legend-dot" style="background:#22c55e"></div>Civic</div>
+      <div class="legend-row"><div class="legend-dot" style="background:#f5c842"></div>Economy</div>
+      <div class="legend-row"><div class="legend-dot" style="background:#f97316"></div>Pandemic</div>
+    </div>
+    <div id="event-log"></div>
+  </div>
+</div>
+
+<div id="bottom-bar">
+  <button class="ctrl-btn" id="btn-pause">⏸ PAUSE</button>
+  <button class="ctrl-btn" id="btn-speed">SPEED: 1×</button>
+  <span style="color:#aaa">Scenario:</span>
+  <button class="scenario-btn active" id="sc-dynasty"  onclick="setScenario('dynasty')">Dynasty</button>
+  <button class="scenario-btn"        id="sc-compet"   onclick="setScenario('competitive')">Competitive</button>
+  <button class="scenario-btn"        id="sc-reform"   onclick="setScenario('reform')">Reform</button>
+  <div id="clock">Jan 2020 06:00</div>
+</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx    = canvas.getContext('2d');
+const wrap   = document.getElementById('canvas-wrap');
+
+function resize() { canvas.width = wrap.clientWidth; canvas.height = wrap.clientHeight; }
+resize();
+window.addEventListener('resize', resize);
+
+// ── Scenario state ────────────────────────────────────────────────────────
+let currentScenario = 'dynasty';
+
+function setScenario(sc) {
+  currentScenario = sc;
+  document.getElementById('sc-dynasty').className = 'scenario-btn' + (sc==='dynasty' ? ' active' : '');
+  document.getElementById('sc-compet').className  = 'scenario-btn' + (sc==='competitive' ? ' active' : '');
+  document.getElementById('sc-reform').className  = 'scenario-btn' + (sc==='reform' ? ' active' : '');
+  document.getElementById('s-scenario').textContent =
+    sc === 'dynasty' ? 'Dynasty' : sc === 'competitive' ? 'Competitive' : 'Reform';
+  // Reset stats per scenario starting conditions
+  if (sc === 'dynasty')      { corruption=35; welfare=50; unrest=15; dynastyScore=60; }
+  if (sc === 'competitive')  { corruption=22; welfare=58; unrest=12; dynastyScore=20; }
+  if (sc === 'reform')       { corruption=18; welfare=62; unrest=10; dynastyScore=5;  }
+}
+
+// ── Zones (matching Python locations.py) ──────────────────────────────────
+const zones = {
+  // Original town zones
+  farm:        { x:.18, y:.32, w:.14, h:.16, label:'FARM',          color:'#5a3a1a', fill:'#7a5230' },
+  factory:     { x:.46, y:.10, w:.22, h:.16, label:'FACTORIES',     color:'#444',    fill:'#555' },
+  church:      { x:.44, y:.38, w:.08, h:.07, label:'CHURCH',        color:'#8b1a1a', fill:'#a52020' },
+  school:      { x:.38, y:.42, w:.09, h:.07, label:'SCHOOL',        color:'#8b1a1a', fill:'#a52020' },
+  hospital:    { x:.56, y:.38, w:.11, h:.07, label:'HOSPITAL',      color:'#8b1a1a', fill:'#a52020' },
+  park:        { x:.40, y:.50, w:.08, h:.07, label:'PARK',          color:'#1a5c1a', fill:'#236b23' },
+  media:       { x:.54, y:.48, w:.08, h:.07, label:'MEDIA',         color:'#8b1a1a', fill:'#a52020' },
+  bgyhall:     { x:.64, y:.48, w:.08, h:.07, label:'BGY. HALL',     color:'#8b1a1a', fill:'#a52020' },
+  market:      { x:.42, y:.58, w:.10, h:.07, label:'MARKET',        color:'#8b1a1a', fill:'#a52020' },
+  police:      { x:.54, y:.57, w:.07, h:.06, label:'POLICE',        color:'#8b1a1a', fill:'#a52020' },
+  audit:       { x:.63, y:.57, w:.06, h:.06, label:'AUDIT',         color:'#8b1a1a', fill:'#a52020' },
+  sarisari:    { x:.34, y:.62, w:.07, h:.07, label:'SARI-SARI',     color:'#8b1a1a', fill:'#a52020' },
+  contoffice:  { x:.38, y:.68, w:.07, h:.06, label:'CONT.OFF.',     color:'#8b1a1a', fill:'#a52020' },
+  bank:        { x:.46, y:.68, w:.07, h:.06, label:'BANK',          color:'#8b1a1a', fill:'#a52020' },
+  munhall:     { x:.54, y:.63, w:.12, h:.09, label:'MUNICIPAL\nHALL',color:'#6b0f0f', fill:'#8b1a1a' },
+  resA:        { x:.74, y:.55, w:.14, h:.18, label:'RES. A',        color:'#1a3a6b', fill:'#1e4d8c' },
+  resB:        { x:.42, y:.80, w:.20, h:.12, label:'RES. B',        color:'#5a1a6b', fill:'#7a2a8c' },
+  resC:        { x:.12, y:.55, w:.22, h:.22, label:'RES. C',        color:'#8b4a00', fill:'#b36000' },
+  // Provincial zones
+  capitol:     { x:.20, y:.08, w:.14, h:.10, label:'CAPITOL',       color:'#6b0f0f', fill:'#8b1a1a' },
+  prv_hosp:    { x:.36, y:.08, w:.10, h:.10, label:'PROV.\nHOSP.',  color:'#8b1a1a', fill:'#a52020' },
+  ecozone:     { x:.68, y:.08, w:.18, h:.13, label:'ECOZONE\n/PEZA',color:'#333',    fill:'#444' },
+  mall:        { x:.22, y:.20, w:.12, h:.10, label:'SM MALL',       color:'#1a3a6b', fill:'#1e4d8c' },
+  court:       { x:.70, y:.42, w:.07, h:.06, label:'COURT',         color:'#8b1a1a', fill:'#a52020' },
+  subdivision: { x:.76, y:.24, w:.13, h:.16, label:'SUBDIV.',       color:'#1a5c1a', fill:'#236b23' },
+};
+
+const roleColors = {
+  governor:'#fbbf24', vice_governor:'#f59e0b',
+  board_member:'#e879f9', mayor:'#f5c842', councilor:'#c084fc',
+  contractor:'#fb923c', farmer:'#86efac', vendor:'#67e8f9',
+  student:'#818cf8', worker:'#94a3b8', police:'#60a5fa',
+  nurse:'#f9a8d4', journalist:'#fde68a', unemployed:'#ef4444',
+  elder:'#d1d5db', business_owner:'#34d399',
+};
+
+const ROLE_HOME = {
+  governor:'resA', vice_governor:'resA', board_member:'resA',
+  mayor:'resA', councilor:'resA', contractor:'resA',
+  farmer:'resC', vendor:'resC', unemployed:'resC',
+  student:'resB', worker:'resB', business_owner:'resB',
+  police:'police', nurse:'hospital', journalist:'media', elder:'resA',
+};
+
+const ROLE_WORK = {
+  governor:'capitol', vice_governor:'capitol', board_member:'capitol',
+  mayor:'munhall', councilor:'munhall', contractor:'contoffice',
+  farmer:'farm', vendor:'market', unemployed:'park',
+  student:'school', worker:'ecozone', business_owner:'market',
+  police:'police', nurse:'prv_hosp', journalist:'media', elder:'church',
+};
+
+let agentIdCounter = 0;
+function randZonePos(zk) {
+  const z = zones[zk] || zones.resC;
+  return { x: (z.x + Math.random()*z.w)*canvas.width,
+           y: (z.y + Math.random()*z.h)*canvas.height };
+}
+
+function createAgent(role) {
+  const home = ROLE_HOME[role] || 'resC';
+  const pos  = randZonePos(home);
+  const names = ['Pedro','Maria','Jose','Rosa','Juan','Ana','Carlos','Nena',
+                 'Berto','Lita','Ramon','Cely','Tony','Fely','Dante','Imelda'];
+  const surnames = ['Reyes','Cruz','Santos','Garcia','Lopez','Dela Cruz','Bautista','Ramos','Villanueva'];
+  return {
+    id: agentIdCounter++,
+    name: names[Math.floor(Math.random()*names.length)] + ' ' +
+          surnames[Math.floor(Math.random()*surnames.length)],
+    role, x:pos.x, y:pos.y, tx:pos.x, ty:pos.y,
+    homeZone:home, workZone:ROLE_WORK[role]||'market',
+    currentZone:home, targetZone:home,
+    moving:false, speed:0.4+Math.random()*0.6,
+    nextDecision:Math.random()*300, status:'resting',
+    color:roleColors[role]||'#aaa',
+    r: (role==='governor'||role==='mayor') ? 6 : 3,
+    trail:[],
+  };
+}
+
+const agents = [];
+const roleDist = {
+  governor:1, vice_governor:1, board_member:5,
+  mayor:2, councilor:8, contractor:5,
+  farmer:15, vendor:10, student:14, worker:15,
+  police:4, nurse:4, journalist:2, unemployed:8, elder:6,
+};
+for (const [role, count] of Object.entries(roleDist))
+  for (let i=0; i<count; i++) agents.push(createAgent(role));
+
+// ── Clock (Jan 2020 → Dec 2026) ───────────────────────────────────────────
+const SIM_START_YEAR = 2020;
+const SIM_END_YEAR   = 2026;
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun',
+                'Jul','Aug','Sep','Oct','Nov','Dec'];
+let simHour=6, simDay=1, simYear=SIM_START_YEAR;
+let paused=false, speed=1;
+const SPEEDS=[1,2,5,10]; let speedIdx=0;
+
+function calendarYear() { return simYear; }
+function dayOfYear()    { return simDay; }
+
+function clockLabel() {
+  const month = MONTHS[Math.floor((simDay-1)/30.4)%12];
+  return `${month} ${simYear} ${String(simHour).padStart(2,'0')}:00`;
+}
+
+// ── Global stats ─────────────────────────────────────────────────────────
+let corruption=35, welfare=50, unrest=15, dynastyScore=60, pandemic=0;
+
+// ── National events ───────────────────────────────────────────────────────
+const NATIONAL_EVENTS = [
+  { year:2020, day:60,  type:'pandemic', text:'COVID-19 first cases confirmed in Mabuhay Province' },
+  { year:2020, day:83,  type:'pandemic', text:'ECQ declared — Enhanced Community Quarantine begins' },
+  { year:2021, day:60,  type:'pandemic', text:'Second COVID wave — Delta variant hits province' },
+  { year:2021, day:200, type:'civic',    text:'Vaccine rollout begins in Mabuhay Province' },
+  { year:2022, day:90,  type:'crime',    text:'Vote-buying season — cash distributions reported' },
+  { year:2022, day:135, type:'political',text:'2022 Elections — Marcos Jr. wins; local dynasties surge' },
+  { year:2022, day:200, type:'civic',    text:'COVID downgraded — economy reopens fully' },
+  { year:2023, day:1,   type:'economy',  text:'OFW remittances surge — post-pandemic recovery' },
+  { year:2024, day:150, type:'economy',  text:'Build Better More road contracts awarded' },
+  { year:2025, day:100, type:'crime',    text:'Pre-midterm vote-buying intensifies' },
+  { year:2025, day:135, type:'political',text:'2025 Midterm Elections — political realignment' },
+  { year:2026, day:1,   type:'political',text:'New officials take office — fresh promises' },
+];
+const firedEvents = new Set();
+
+function checkNationalEvents() {
+  for (const ev of NATIONAL_EVENTS) {
+    const key = `${ev.year}_${ev.day}`;
+    if (!firedEvents.has(key) && simYear===ev.year && simDay>=ev.day) {
+      firedEvents.add(key);
+      addEvent(ev.type, `[NATIONAL] ${ev.text}`);
+      // Apply effects
+      if (ev.year===2020 && ev.day===60)  { pandemic=Math.min(100,pandemic+40); }
+      if (ev.year===2020 && ev.day===83)  { pandemic=Math.min(100,pandemic+40); welfare-=15; unrest+=12; showPandemicBanner(true); }
+      if (ev.year===2021 && ev.day===60)  { pandemic=Math.min(100,pandemic+20); unrest+=8; }
+      if (ev.year===2021 && ev.day===200) { pandemic=Math.max(0,pandemic-15); }
+      if (ev.year===2022 && ev.day===135) { dynastyScore=Math.min(100,dynastyScore+(currentScenario==='dynasty'?8:2)); pandemic=Math.max(0,pandemic-30); }
+      if (ev.year===2022 && ev.day===200) { pandemic=Math.max(0,pandemic-20); welfare+=10; showPandemicBanner(false); }
+      if (ev.year===2023 && ev.day===1)   { welfare+=6; }
+    }
+  }
+}
+
+function showPandemicBanner(show) {
+  document.getElementById('pandemic-banner').style.display = show ? 'block' : 'none';
+}
+
+// ── Event log ─────────────────────────────────────────────────────────────
+const eventLog = document.getElementById('event-log');
+const RULE_EVENTS = [
+  { type:'political', texts:['Governor signed infrastructure contract','Board member voted on budget ordinance',
+                              'Mayor approved barangay project','Election rally at the plaza',
+                              'Dynasty family member appointed to committee'] },
+  { type:'crime',     texts:['Ghost project detected at Capitol','Auditor flagged suspicious invoice',
+                              'Contractor overbilled ₱5M on road repair','Cash-for-vote distribution reported',
+                              'Budget diversion to private account discovered'] },
+  { type:'civic',     texts:['School enrollment opens','Provincial hospital received supplies',
+                              'Media reported on road conditions','Farmer cooperative formed',
+                              'OFW remittance boosted local economy'] },
+  { type:'economy',   texts:['Ecozone hired 50 workers','Market revenue increased 4%',
+                              'Bank loan approved for cooperative','SM Mall opening draws investors',
+                              'Land conversion to subdivision approved'] },
+];
+
+function addEvent(type, text) {
+  const el = document.createElement('div');
+  el.className = `event-item ${type}`;
+  el.textContent = `[${clockLabel()}] ${text}`;
+  eventLog.prepend(el);
+  if (eventLog.children.length > 50) eventLog.lastChild.remove();
+}
+
+let eventTimer=0, statsTimer=0;
+
+function addRandomEvent() {
+  const tpl = RULE_EVENTS[Math.floor(Math.random()*RULE_EVENTS.length)];
+  const txt  = tpl.texts[Math.floor(Math.random()*tpl.texts.length)];
+  addEvent(tpl.type, txt);
+}
+
+// ── Stats update ──────────────────────────────────────────────────────────
+function updateStats() {
+  // Scenario modifies drift rates
+  const corrDrift  = currentScenario==='dynasty' ? 0.35 : (currentScenario==='competitive' ? 0.20 : 0.10);
+  const trustDrift = currentScenario==='reform'  ? 0.15 : 0.05;
+  corruption = Math.max(5,  Math.min(95, corruption + (Math.random()-0.50+corrDrift*0.05)*0.3));
+  welfare    = Math.max(20, Math.min(95, welfare    + (Math.random()-0.48)*0.2 - pandemic*0.001));
+  unrest     = Math.max(0,  Math.min(100,unrest     + (Math.random()-0.48)*0.25 + pandemic*0.002));
+  pandemic   = Math.max(0,  Math.min(100,pandemic   + (Math.random()-0.52)*0.1));
+  dynastyScore = Math.max(0,Math.min(100, dynastyScore + (currentScenario==='dynasty' ? 0.05 : -0.05)));
+
+  document.getElementById('s-corr').textContent   = corruption.toFixed(0)+'%';
+  document.getElementById('s-welf').textContent   = welfare.toFixed(0);
+  document.getElementById('s-unrest').textContent = unrest.toFixed(0);
+  document.getElementById('s-pand').textContent   = pandemic.toFixed(0);
+  const pillCorr = document.getElementById('pill-corr');
+  pillCorr.className = corruption > 50 ? 'pill warn' : 'pill';
+  const pillPand = document.getElementById('pill-pand');
+  pillPand.className = pandemic > 30 ? 'pill warn' : 'pill';
+}
+
+// ── Agent schedules ───────────────────────────────────────────────────────
+const SCHEDULES = {
+  governor:      [{h:8,z:'capitol'},{h:12,z:'market'},{h:14,z:'capitol'},{h:18,z:'resA'},{h:20,z:'resA'}],
+  vice_governor: [{h:8,z:'capitol'},{h:12,z:'resA'},{h:14,z:'capitol'},{h:17,z:'resA'}],
+  board_member:  [{h:8,z:'capitol'},{h:12,z:'market'},{h:14,z:'capitol'},{h:17,z:'resA'}],
+  mayor:         [{h:7,z:'munhall'},{h:12,z:'market'},{h:14,z:'munhall'},{h:18,z:'resA'},{h:20,z:'resA'}],
+  councilor:     [{h:8,z:'munhall'},{h:12,z:'sarisari'},{h:14,z:'munhall'},{h:17,z:'resA'}],
+  contractor:    [{h:8,z:'contoffice'},{h:10,z:'munhall'},{h:12,z:'bank'},{h:14,z:'capitol'},{h:17,z:'resA'}],
+  farmer:        [{h:5,z:'farm'},{h:11,z:'market'},{h:13,z:'resC'},{h:15,z:'farm'},{h:18,z:'resC'}],
+  vendor:        [{h:4,z:'market'},{h:14,z:'resC'},{h:16,z:'sarisari'}],
+  student:       [{h:7,z:'school'},{h:15,z:'park'},{h:17,z:'resB'}],
+  worker:        [{h:6,z:'ecozone'},{h:12,z:'market'},{h:13,z:'ecozone'},{h:17,z:'resB'}],
+  police:        [{h:7,z:'police'},{h:10,z:'market'},{h:14,z:'police'},{h:22,z:'police'}],
+  nurse:         [{h:7,z:'prv_hosp'},{h:15,z:'resA'},{h:20,z:'prv_hosp'}],
+  journalist:    [{h:8,z:'media'},{h:10,z:'capitol'},{h:13,z:'market'},{h:16,z:'media'}],
+  unemployed:    [{h:9,z:'park'},{h:11,z:'sarisari'},{h:13,z:'resC'},{h:16,z:'park'}],
+  elder:         [{h:8,z:'church'},{h:10,z:'resA'},{h:14,z:'park'},{h:17,z:'resA'}],
+  business_owner:[{h:8,z:'market'},{h:12,z:'bank'},{h:14,z:'mall'},{h:18,z:'resB'}],
+};
+
+function getScheduledZone(agent) {
+  const hour  = simHour;
+  const sched = SCHEDULES[agent.role] || SCHEDULES.worker;
+  // COVID lockdown restricts movement
+  if (pandemic > 60) return agent.homeZone;
+  let target = agent.homeZone;
+  for (const s of sched) { if (hour >= s.h) target = s.z; }
+  return target;
+}
+
+function moveAgentTo(agent, zoneKey) {
+  if (!zones[zoneKey]) return;
+  const p = randZonePos(zoneKey);
+  agent.tx = p.x; agent.ty = p.y;
+  agent.targetZone = zoneKey;
+  agent.moving = true;
+  agent.status = zoneKey===agent.homeZone ? 'at home' : `→ ${zones[zoneKey].label.replace('\n',' ')}`;
+}
+
+// ── Controls ──────────────────────────────────────────────────────────────
+document.getElementById('btn-pause').addEventListener('click', () => {
+  paused = !paused;
+  document.getElementById('btn-pause').textContent = paused ? '▶ PLAY' : '⏸ PAUSE';
+});
+document.getElementById('btn-speed').addEventListener('click', () => {
+  speedIdx = (speedIdx+1)%SPEEDS.length;
+  speed    = SPEEDS[speedIdx];
+  document.getElementById('btn-speed').textContent = `SPEED: ${speed}×`;
+});
+
+// ── Tooltip ───────────────────────────────────────────────────────────────
+const tooltip = document.getElementById('agent-tooltip');
+let hoveredAgent = null;
+canvas.addEventListener('mousemove', e => {
+  const rect = canvas.getBoundingClientRect();
+  const mx=e.clientX-rect.left, my=e.clientY-rect.top;
+  let found=null;
+  for (const a of agents) {
+    const dx=a.x-mx, dy=a.y-my;
+    if (dx*dx+dy*dy < (a.r+5)*(a.r+5)) { found=a; break; }
+  }
+  hoveredAgent = found;
+  if (found) {
+    tooltip.style.display='block';
+    tooltip.style.left=(mx+14)+'px';
+    tooltip.style.top=(my-10)+'px';
+    document.getElementById('tt-name').textContent   = found.name;
+    document.getElementById('tt-role').textContent   = found.role.replace('_',' ').toUpperCase();
+    document.getElementById('tt-status').textContent = '▸ '+found.status;
+    document.getElementById('tt-dest').textContent   = '→ '+(zones[found.targetZone]?.label.replace('\n',' ')||'');
+  } else {
+    tooltip.style.display='none';
+  }
+});
+
+// ── Main loop ─────────────────────────────────────────────────────────────
+let lastTime=null;
+
+function loop(ts) {
+  if (!lastTime) lastTime=ts;
+  const dt = Math.min((ts-lastTime)/1000, 0.1)*speed;
+  lastTime=ts;
+
+  if (!paused) {
+    // Advance sim time (4 sim-minutes per real second)
+    simHour += dt * 4 / 60;
+    if (simHour >= 24) {
+      simHour -= 24;
+      simDay++;
+      if (simDay > 365) {
+        simDay = 1;
+        simYear++;
+        if (simYear > SIM_END_YEAR) {
+          simYear = SIM_START_YEAR;
+          firedEvents.clear();
+          // Reset on loop
+          corruption=35; welfare=50; unrest=15; pandemic=0; dynastyScore=60;
+          showPandemicBanner(false);
+        }
+      }
+    }
+    document.getElementById('clock').textContent = clockLabel();
+    checkNationalEvents();
+
+    // Move agents
+    for (const a of agents) {
+      a.nextDecision -= dt;
+      if (a.nextDecision <= 0) {
+        const tz = getScheduledZone(a);
+        if (tz !== a.targetZone || !a.moving) moveAgentTo(a, tz);
+        a.nextDecision = 8 + Math.random()*12;
+      }
+      if (a.moving) {
+        const dx=a.tx-a.x, dy=a.ty-a.y;
+        const dist=Math.sqrt(dx*dx+dy*dy);
+        if (dist < 1.5) {
+          a.x=a.tx; a.y=a.ty; a.moving=false;
+          a.currentZone=a.targetZone;
+          a.status='at '+(zones[a.targetZone]?.label.replace('\n',' ')||'');
+          a.trail=[];
+        } else {
+          const spd = a.speed * 60 * dt * (pandemic > 60 ? 0.3 : 1);
+          a.x += (dx/dist)*Math.min(spd,dist);
+          a.y += (dy/dist)*Math.min(spd,dist);
+          a.trail.push({x:a.x, y:a.y});
+          if (a.trail.length > 12) a.trail.shift();
+        }
+      }
+    }
+
+    eventTimer += dt;
+    if (eventTimer > 3.5/speed) { eventTimer=0; if (Math.random()<.45) addRandomEvent(); }
+    statsTimer += dt;
+    if (statsTimer > 5) { statsTimer=0; updateStats(); }
+  }
+
+  // ── Draw ──────────────────────────────────────────────────────────────
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle = pandemic > 50 ? '#1c2a1c' : '#1c3a1c';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  // Zones
+  for (const [key,z] of Object.entries(zones)) {
+    const x=z.x*canvas.width, y=z.y*canvas.height,
+          w=z.w*canvas.width, h=z.h*canvas.height;
+    ctx.fillStyle=z.fill;   ctx.fillRect(x,y,w,h);
+    ctx.strokeStyle=z.color; ctx.lineWidth=1.5; ctx.strokeRect(x,y,w,h);
+    ctx.fillStyle='#f5c842';
+    ctx.font=`bold ${Math.max(7,Math.min(10,w/8))}px 'VT323',monospace`;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    const lines=z.label.split('\n');
+    lines.forEach((line,i)=>ctx.fillText(line,x+w/2,y+h/2+(i-(lines.length-1)/2)*12));
+  }
+
+  // Agents
+  for (const a of agents) {
+    if (a.trail.length > 1) {
+      ctx.beginPath();
+      ctx.moveTo(a.trail[0].x,a.trail[0].y);
+      for (let i=1;i<a.trail.length;i++) ctx.lineTo(a.trail[i].x,a.trail[i].y);
+      ctx.strokeStyle=a.color+'33'; ctx.lineWidth=1; ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.arc(a.x,a.y,a.r,0,Math.PI*2);
+    ctx.fillStyle=a.color; ctx.fill();
+    if (a===hoveredAgent) {
+      ctx.beginPath();
+      ctx.arc(a.x,a.y,a.r+3,0,Math.PI*2);
+      ctx.strokeStyle='#fff'; ctx.lineWidth=1.5; ctx.stroke();
+    }
+    // Governor gets a crown indicator
+    if (a.role==='governor') {
+      ctx.fillStyle='#fbbf24';
+      ctx.font='8px sans-serif';
+      ctx.textAlign='center';
+      ctx.fillText('★',a.x,a.y-a.r-2);
+    }
+  }
+
+  requestAnimationFrame(loop);
+}
+
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
