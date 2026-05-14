@@ -2,6 +2,7 @@
 dynasty/
 venv/
 sim/Lib/
+sim/Scripts/
 sim/pyvenv.cfg
 
 # Python
