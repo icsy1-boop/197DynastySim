@@ -1,0 +1,7 @@
+{
+  "world_name": "Barangay Mabuhay",
+  "maze_width": 80,
+  "maze_height": 60,
+  "sq_tile_size": 32,
+  "special_constraint": ""
+}

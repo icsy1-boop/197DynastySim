@@ -1,0 +1,117 @@
+{
+  "Barangay Mabuhay": {
+    "Residential Zone A": {
+      "home": [
+        "bed",
+        "closet",
+        "desk",
+        "refrigerator"
+      ]
+    },
+    "Residential Zone B": {
+      "home": [
+        "bed",
+        "closet",
+        "desk",
+        "refrigerator"
+      ]
+    },
+    "Residential Zone C": {
+      "home": [
+        "bed",
+        "closet",
+        "desk",
+        "refrigerator"
+      ]
+    },
+    "Municipal Hall": {
+      "office": [
+        "mayor's desk",
+        "meeting table",
+        "file cabinet",
+        "reception desk"
+      ]
+    },
+    "Barangay Hall": {
+      "office": [
+        "captain's desk",
+        "council table",
+        "bulletin board",
+        "reception desk"
+      ]
+    },
+    "Audit Office": {
+      "office": [
+        "auditor's desk",
+        "file cabinet",
+        "computer"
+      ]
+    },
+    "Contractor Office": {
+      "office": [
+        "contractor's desk",
+        "blueprint table",
+        "file cabinet"
+      ]
+    },
+    "Police Station": {
+      "station": [
+        "officer's desk",
+        "holding area",
+        "dispatch radio"
+      ]
+    },
+    "Health Center": {
+      "clinic": [
+        "nurse's station",
+        "examination bed",
+        "medicine cabinet",
+        "waiting area"
+      ]
+    },
+    "School": {
+      "classroom": [
+        "teacher's desk",
+        "student desks",
+        "blackboard",
+        "library shelf"
+      ]
+    },
+    "Church": {
+      "chapel": [
+        "altar",
+        "pews",
+        "prayer candles"
+      ]
+    },
+    "Farm Area": {
+      "field": [
+        "crop field",
+        "irrigation pump",
+        "storage shed",
+        "harvest area"
+      ]
+    },
+    "Public Market": {
+      "stall": [
+        "vendor stall",
+        "market counter",
+        "storage crates"
+      ]
+    },
+    "Media Office": {
+      "newsroom": [
+        "journalist's desk",
+        "camera equipment",
+        "printer"
+      ]
+    },
+    "Plaza": {
+      "park": [
+        "park bench",
+        "fountain",
+        "basketball court"
+      ]
+    }
+  }
+}
