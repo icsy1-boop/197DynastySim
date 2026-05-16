@@ -1,0 +1,3 @@
+agent_id,name,sex,age,education_level,role,family_id,civil_degree,relation_type,relation_label,home_zone,work_zone,social_class,wealth,income_per_day,satisfaction,goals,is_alive,integrity,greed,ambition,family_loyalty,competence,empathy,initial_trust_score
+19,Esperanza Garcia,F,21,5,journalist,Tatlonghari,3,affinity,niece-in-law,resB,media,C,113646.82,685.82,58.8,Publish corruption story | Investigate ghost projects | Resist media suppression,True,0.535,0.411,0.599,0.449,0.347,0.411,0.963
+12,Manny Dimalanta,M,63,5,vice_mayor,Tatlonghari,2,affinity,brother-in-law,resA,munhall,B,2910907.27,4751.2,65.21,Audit contracts | Position for mayor | Build political base,True,0.543,0.505,0.517,0.245,0.718,0.623,0.887

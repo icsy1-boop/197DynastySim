@@ -142,7 +142,7 @@ def _update(conn, event: str, **deltas):
           family_wealth=:family_wealth, election_in=:election_in,
           recent_events=:recent_events, updated_at=:updated_at
         WHERE tick=(SELECT MAX(tick) FROM world_state)
-    """, s)
+    "", s)
     conn.commit()
 
 
@@ -409,7 +409,7 @@ def remember(agent_name: str, event: str, importance: int = 5) -> str:
     return f"Memory stored (tick {tick}, importance {importance})."
 
 
-# ── Run ────────────────────────────────────────────────────────────────────────
+# ── Run ───────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     init_db()
