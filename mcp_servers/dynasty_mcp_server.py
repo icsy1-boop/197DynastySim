@@ -1,7 +1,7 @@
 # mcp_servers/dynasty_mcp_server.py
 # Tatlonghari Dynasty MCP Server — world state + role-scoped action tools.
 # Run: python mcp_servers/dynasty_mcp_server.py
-# OnIt connects via: http://127.0.0.1:18300/dynasty
+# OnIt connects via: http://127.0.0.1:18200/sse
 
 import sqlite3, json
 from fastmcp import FastMCP
