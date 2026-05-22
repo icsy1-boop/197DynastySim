@@ -19,6 +19,7 @@ to the memory stream, and "reverie" to refer to the overarching simulation
 framework.
 """
 import json
+import csv
 import numpy
 import datetime
 import pickle
@@ -27,6 +28,7 @@ import math
 import os
 import shutil
 import traceback
+from concurrent.futures import ThreadPoolExecutor
 
 from selenium import webdriver
 
@@ -306,16 +308,29 @@ class ReverieServer:
     sim_folder = f"{fs_storage}/{self.sim_code}"
 
     # When a persona arrives at a game object, we give a unique event
-    # to that object. 
+    # to that object.
     # e.g., ('double studio[...]:bed', 'is', 'unmade', 'unmade')
-    # Later on, before this cycle ends, we need to return that to its 
-    # initial state, like this: 
+    # Later on, before this cycle ends, we need to return that to its
+    # initial state, like this:
     # e.g., ('double studio[...]:bed', None, None, None)
-    # So we need to keep track of which event we added. 
-    # <game_obj_cleanup> is used for that. 
+    # So we need to keep track of which event we added.
+    # <game_obj_cleanup> is used for that.
     game_obj_cleanup = dict()
 
-    # The main while loop of Reverie. 
+    # Step logger: one CSV row per completed step.
+    os.makedirs(_BARANGAY_OUTPUT, exist_ok=True)
+    _step_log_path = os.path.join(_BARANGAY_OUTPUT, "sim_log.csv")
+    _log_header_needed = not os.path.exists(_step_log_path)
+    _step_log_file = open(_step_log_path, "a", newline="")
+    _step_log_writer = csv.writer(_step_log_file)
+    if _log_header_needed:
+      _step_log_writer.writerow(
+        ["step", "sim_time", "wall_elapsed_s", "n_agents", "n_tier1", "n_tier2"])
+    _n_tier1 = sum(1 for p in self.personas.values()
+                   if getattr(p.scratch, 'agent_tier', 1) == 1)
+    _n_tier2 = len(self.personas) - _n_tier1
+
+    # The main while loop of Reverie.
     while (True): 
       # Done with this iteration if <int_counter> reaches 0. 
       if int_counter == 0: 
@@ -337,8 +352,9 @@ class ReverieServer:
         except: 
           pass
       
-        if env_retrieved: 
-          # This is where we go through <game_obj_cleanup> to clean up all 
+        if env_retrieved:
+          _step_wall_start = time.time()
+          # This is where we go through <game_obj_cleanup> to clean up all
           # object actions that were used in this cylce. 
           for key, val in game_obj_cleanup.items(): 
             # We turn all object actions to their blank form (with None). 
@@ -380,24 +396,28 @@ class ReverieServer:
           # Then we need to actually have each of the personas perceive and
           # move. The movement for each of the personas comes in the form of
           # x y coordinates where the persona will move towards. e.g., (50, 34)
-          # This is where the core brains of the personas are invoked. 
-          movements = {"persona": dict(), 
-                       "meta": dict()}
-          for persona_name, persona in self.personas.items(): 
-            # <next_tile> is a x,y coordinate. e.g., (58, 9)
-            # <pronunciatio> is an emoji. e.g., "\ud83d\udca4"
-            # <description> is a string description of the movement. e.g., 
-            #   writing her next novel (editing her novel) 
-            #   @ double studio:double studio:common room:sofa
-            next_tile, pronunciatio, description = persona.move(
-              self.maze, self.personas, self.personas_tile[persona_name], 
+          # Persona moves run in parallel: each persona.move() is dominated by
+          # LLM HTTP latency, so threads are an effective concurrency primitive.
+          movements = {"persona": dict(), "meta": dict()}
+
+          def _run_persona_move(item):
+            persona_name, persona = item
+            next_tile, pronunciatio, description, path = persona.move(
+              self.maze, self.personas, self.personas_tile[persona_name],
               self.curr_time)
+            return persona_name, persona, next_tile, pronunciatio, description, path
+
+          with ThreadPoolExecutor(max_workers=len(self.personas)) as executor:
+            results = list(executor.map(_run_persona_move,
+                                        self.personas.items()))
+
+          for persona_name, persona, next_tile, pronunciatio, description, path in results:
             movements["persona"][persona_name] = {}
             movements["persona"][persona_name]["movement"] = next_tile
+            movements["persona"][persona_name]["path"] = [list(t) for t in path]
             movements["persona"][persona_name]["pronunciatio"] = pronunciatio
             movements["persona"][persona_name]["description"] = description
-            movements["persona"][persona_name]["chat"] = (persona
-                                                          .scratch.chat)
+            movements["persona"][persona_name]["chat"] = persona.scratch.chat
 
           # Include the meta information about the current stage in the 
           # movements dictionary. 
@@ -418,6 +438,16 @@ class ReverieServer:
           # current time moves by <sec_per_step> amount.
           self.step += 1
           self.curr_time += datetime.timedelta(seconds=self.sec_per_step)
+
+          _step_log_writer.writerow([
+            self.step,
+            self.curr_time.strftime("%Y-%m-%d %H:%M:%S"),
+            round(time.time() - _step_wall_start, 2),
+            len(self.personas),
+            _n_tier1,
+            _n_tier2,
+          ])
+          _step_log_file.flush()
 
           # BARANGAY: log corruption metric every 10 steps (≈ 100 in-game sec)
           if self.step % 10 == 0 and self.barangay_agent_rows:
@@ -479,11 +509,19 @@ class ReverieServer:
           # Example: save
           self.save()
 
-        elif sim_command[:3].lower() == "run": 
-          # Runs the number of steps specified in the prompt.
-          # Example: run 1000
-          int_count = int(sim_command.split()[-1])
-          rs.start_server(int_count)
+        elif sim_command[:3].lower() == "run":
+          # run 1000          → run 1000 steps from now
+          # run until 5000    → run until step 5000 total
+          parts = sim_command.split()
+          if len(parts) == 3 and parts[1].lower() == "until":
+            target_step = int(parts[2])
+            if target_step <= self.step:
+              print(f"Already at step {self.step}, target {target_step} already reached.")
+            else:
+              rs.start_server(target_step - self.step)
+          else:
+            int_count = int(parts[-1])
+            rs.start_server(int_count)
 
         elif ("print persona schedule" 
               in sim_command[:22].lower()): 

@@ -624,7 +624,15 @@ def _determine_action(persona, maze):
   act_world = maze.access_tile(persona.scratch.curr_tile)["world"]
   # act_sector = maze.access_tile(persona.scratch.curr_tile)["sector"]
   act_sector = generate_action_sector(act_desp, persona, maze)
+  # Validate sector exists in spatial memory; fall back to first known sector
+  valid_sectors = list(persona.s_mem.tree.get(act_world, {}).keys())
+  if act_sector not in valid_sectors and valid_sectors:
+    act_sector = valid_sectors[0]
   act_arena = generate_action_arena(act_desp, persona, maze, act_world, act_sector)
+  # Validate arena exists in spatial memory; fall back to first known arena
+  valid_arenas = list(persona.s_mem.tree.get(act_world, {}).get(act_sector, {}).keys())
+  if act_arena not in valid_arenas and valid_arenas:
+    act_arena = valid_arenas[0]
   act_address = f"{act_world}:{act_sector}:{act_arena}"
   act_game_object = generate_action_game_object(act_desp, act_address,
                                                 persona, maze)

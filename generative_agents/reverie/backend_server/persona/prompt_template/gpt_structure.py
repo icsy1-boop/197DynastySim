@@ -5,15 +5,25 @@ local Qwen vLLM endpoint (OpenAI-compatible API on VM A) and uses a local
 sentence-transformers model for embeddings instead of OpenAI ada-002.
 """
 import json
+import re
 import time
 
-import openai
+from openai import OpenAI
 from utils import qwen_endpoint, qwen_model
 
-# Point the openai client at the Qwen vLLM endpoint on VM A.
-# vLLM serves an OpenAI-compatible API, so no other code changes are needed.
-openai.api_key = "not-used"
-openai.api_base = f"{qwen_endpoint}/v1"
+
+def _strip_qwen_thinking(text):
+  """Remove Qwen reasoning-model artifacts before parsing.
+  Qwen3/QwQ models emit <think>...</think> blocks and separator lines
+  that break the original generative_agents response parsers.
+  """
+  text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+  lines = [l for l in text.split('\n')
+           if l.strip() not in ('TOODOOOOOO', '-==- -==- -==-', '')]
+  return '\n'.join(lines).strip()
+
+# openai 1.x client — points at Qwen vLLM endpoint on VM A.
+_client = OpenAI(api_key="not-used", base_url=f"{qwen_endpoint}/v1")
 
 # Lazy-loaded local embedding model (sentence-transformers, runs on VM B CPU).
 _embed_model = None
@@ -27,16 +37,16 @@ def _get_embed_model():
 
 
 def temp_sleep(seconds=0.1):
-  time.sleep(seconds)
+  return  # no-op: we hit a local vLLM server, rate-limit sleep wastes wall time
 
 
 def ChatGPT_single_request(prompt):
   temp_sleep()
-  completion = openai.ChatCompletion.create(
+  completion = _client.chat.completions.create(
     model=qwen_model,
     messages=[{"role": "user", "content": prompt}]
   )
-  return completion["choices"][0]["message"]["content"]
+  return _strip_qwen_thinking(completion.choices[0].message.content)
 
 
 # ============================================================================
@@ -46,11 +56,11 @@ def ChatGPT_single_request(prompt):
 def GPT4_request(prompt):
   temp_sleep()
   try:
-    completion = openai.ChatCompletion.create(
+    completion = _client.chat.completions.create(
       model=qwen_model,
       messages=[{"role": "user", "content": prompt}]
     )
-    return completion["choices"][0]["message"]["content"]
+    return _strip_qwen_thinking(completion.choices[0].message.content)
   except Exception as e:
     print(f"Qwen ERROR (GPT4_request): {e}")
     return "ChatGPT ERROR"
@@ -58,11 +68,11 @@ def GPT4_request(prompt):
 
 def ChatGPT_request(prompt):
   try:
-    completion = openai.ChatCompletion.create(
+    completion = _client.chat.completions.create(
       model=qwen_model,
       messages=[{"role": "user", "content": prompt}]
     )
-    return completion["choices"][0]["message"]["content"]
+    return _strip_qwen_thinking(completion.choices[0].message.content)
   except Exception as e:
     print(f"Qwen ERROR (ChatGPT_request): {e}")
     return "ChatGPT ERROR"
@@ -169,7 +179,7 @@ def GPT_request(prompt, gpt_parameter):
   """
   temp_sleep()
   try:
-    response = openai.Completion.create(
+    response = _client.completions.create(
       model=qwen_model,
       prompt=prompt,
       temperature=gpt_parameter["temperature"],
@@ -180,7 +190,7 @@ def GPT_request(prompt, gpt_parameter):
       stream=gpt_parameter["stream"],
       stop=gpt_parameter["stop"],
     )
-    return response.choices[0].text
+    return _strip_qwen_thinking(response.choices[0].text)
   except Exception as e:
     print(f"TOKEN LIMIT EXCEEDED or Qwen error: {e}")
     return "TOKEN LIMIT EXCEEDED"
@@ -224,14 +234,18 @@ def safe_generate_response(prompt,
   return fail_safe_response
 
 
+_embedding_cache = {}
+
 def get_embedding(text, model="all-MiniLM-L6-v2"):
   """
-  Returns a 384-dim embedding vector using a local sentence-transformers model
-  running on VM B. This avoids any dependency on VM A for embeddings and is
-  much cheaper than calling an LLM endpoint per memory node.
+  Returns a 384-dim embedding using a local sentence-transformers model on VM B.
+  Results are cached in-process so repeated texts (common for persona descriptions)
+  skip the encode call entirely.
   """
-  text = text.replace("\n", " ")
-  if not text:
-    text = "this is blank"
-  embed_model = _get_embed_model()
-  return embed_model.encode(text).tolist()
+  text = text.replace("\n", " ") or "this is blank"
+  cache_key = (model, text)
+  if cache_key in _embedding_cache:
+    return _embedding_cache[cache_key]
+  result = _get_embed_model().encode(text).tolist()
+  _embedding_cache[cache_key] = result
+  return result

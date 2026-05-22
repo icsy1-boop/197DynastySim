@@ -60,8 +60,12 @@ class Scratch:
     self.recency_decay = 0.99
     self.importance_trigger_max = 150
     self.importance_trigger_curr = self.importance_trigger_max
-    self.importance_ele_n = 0 
+    self.importance_ele_n = 0
     self.thought_count = 5
+
+    # TWO-TIER SYSTEM
+    self.agent_tier = 1   # 1 = full LLM, 2 = lite (skip emojis/object/triple)
+    self.role = "citizen"
 
     # PERSONA PLANNING 
     # <daily_req> is a list of various goals the persona is aiming to achieve
@@ -200,6 +204,9 @@ class Scratch:
       self.importance_ele_n = scratch_load["importance_ele_n"]
       self.thought_count = scratch_load["thought_count"]
 
+      self.agent_tier = scratch_load.get("agent_tier", 1)
+      self.role = scratch_load.get("role", "citizen")
+
       self.daily_req = scratch_load["daily_req"]
       self.f_daily_schedule = scratch_load["f_daily_schedule"]
       self.f_daily_schedule_hourly_org = scratch_load["f_daily_schedule_hourly_org"]
@@ -277,6 +284,9 @@ class Scratch:
     scratch["importance_trigger_curr"] = self.importance_trigger_curr
     scratch["importance_ele_n"] = self.importance_ele_n
     scratch["thought_count"] = self.thought_count
+
+    scratch["agent_tier"] = self.agent_tier
+    scratch["role"] = self.role
 
     scratch["daily_req"] = self.daily_req
     scratch["f_daily_schedule"] = self.f_daily_schedule

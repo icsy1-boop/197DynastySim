@@ -88,9 +88,21 @@ def execute(persona, maze, personas, plan):
       # Retrieve the target addresses. Again, plan is an action address in its
       # string form. <maze.address_tiles> takes this and returns candidate 
       # coordinates. 
-      if plan not in maze.address_tiles: 
-        maze.address_tiles["Johnson Park:park:park garden"] #ERRORRRRRRR
-      else: 
+      if plan not in maze.address_tiles:
+        # Try progressively shorter addresses (strip object → arena → sector)
+        parts = plan.split(":")
+        fallback = None
+        while parts:
+          parts = parts[:-1]
+          candidate = ":".join(parts)
+          if candidate in maze.address_tiles:
+            fallback = candidate
+            break
+        if fallback is None:
+          # Last resort: first available address in the maze
+          fallback = next(iter(maze.address_tiles))
+        target_tiles = maze.address_tiles[fallback]
+      else:
         target_tiles = maze.address_tiles[plan]
 
     # There are sometimes more than one tile returned from this (e.g., a tabe
@@ -145,17 +157,19 @@ def execute(persona, maze, personas, plan):
     persona.scratch.planned_path = path[1:]
     persona.scratch.act_path_set = True
   
-  # Setting up the next immediate step. We stay at our curr_tile if there is
-  # no <planned_path> left, but otherwise, we go to the next tile in the path.
+  # Consume the entire planned_path in one step so the persona arrives at their
+  # destination within the same simulated time unit. The full path is returned
+  # for the frontend to animate as a tween chain.
   ret = persona.scratch.curr_tile
-  if persona.scratch.planned_path: 
-    ret = persona.scratch.planned_path[0]
-    persona.scratch.planned_path = persona.scratch.planned_path[1:]
+  full_path = list(persona.scratch.planned_path)
+  if persona.scratch.planned_path:
+    ret = persona.scratch.planned_path[-1]
+    persona.scratch.planned_path = []
 
   description = f"{persona.scratch.act_description}"
   description += f" @ {persona.scratch.act_address}"
 
-  execution = ret, persona.scratch.act_pronunciatio, description
+  execution = ret, persona.scratch.act_pronunciatio, description, full_path
   return execution
 
 

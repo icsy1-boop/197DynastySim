@@ -16,7 +16,18 @@ from global_methods import *
 from persona.prompt_template.gpt_structure import *
 from persona.prompt_template.print_prompt import *
 
-def get_random_alphanumeric(i=6, j=6): 
+# Tier-2 agents skip the LLM calls for pronunciatio, game_object, and
+# event_triple.  This dict maps role → representative emoji for pronunciatio.
+_LITE_ROLE_EMOJI = {
+  "citizen": "🧑", "farmer": "🌾", "vendor": "🛒", "student": "📚",
+  "teacher": "🏫", "worker": "⚒️", "elder": "👴", "parent": "👨‍👩‍👧",
+  "doctor": "🩺", "nurse": "💉", "patient": "🛏️", "priest": "⛪",
+  "journalist": "📰", "contractor": "🏗️", "police": "👮",
+  "mayor": "🏛️", "vice_mayor": "🏛️", "councilor": "📋",
+  "barangay_captain": "🏡", "auditor": "🔍",
+}
+
+def get_random_alphanumeric(i=6, j=6):
   """
   Returns a random alpha numeric strength that has the length of somewhere
   between i and j. 
@@ -370,12 +381,19 @@ def run_gpt_prompt_task_decomp(persona,
         _cr += [" ".join([j.strip () for j in i.split(" ")][3:])]
       else: 
         _cr += [i]
-    for count, i in enumerate(_cr): 
+    for count, i in enumerate(_cr):
       k = [j.strip() for j in i.split("(duration in minutes:")]
+      if len(k) < 2:
+        continue
       task = k[0]
-      if task[-1] == ".": 
+      if not task:
+        continue
+      if task[-1] == ".":
         task = task[:-1]
-      duration = int(k[1].split(",")[0].strip())
+      try:
+        duration = int(k[1].split(",")[0].strip())
+      except (ValueError, IndexError):
+        continue
       cr += [[task, duration]]
 
     total_expected_min = int(prompt.split("(total duration in minutes")[-1]
@@ -755,13 +773,18 @@ def run_gpt_prompt_action_game_object(action_description,
     fs = ("bed")
     return fs
 
-  gpt_param = {"engine": "text-davinci-003", "max_tokens": 15, 
+  if getattr(persona.scratch, 'agent_tier', 1) == 2:
+    objects = [i.strip() for i in persona.s_mem.get_str_accessible_arena_game_objects(temp_address).split(",")]
+    chosen = random.choice(objects) if objects and objects != [''] else "bed"
+    return chosen, [chosen, "", {}, [], chosen]
+
+  gpt_param = {"engine": "text-davinci-003", "max_tokens": 15,
                "temperature": 0, "top_p": 1, "stream": False,
                "frequency_penalty": 0, "presence_penalty": 0, "stop": None}
   prompt_template = "persona/prompt_template/v1/action_object_v2.txt"
-  prompt_input = create_prompt_input(action_description, 
-                                     persona, 
-                                     temp_address, 
+  prompt_input = create_prompt_input(action_description,
+                                     persona,
+                                     temp_address,
                                      test_input)
   prompt = generate_prompt(prompt_input, prompt_template)
 
@@ -770,13 +793,13 @@ def run_gpt_prompt_action_game_object(action_description,
                                    __func_validate, __func_clean_up)
 
   x = [i.strip() for i in persona.s_mem.get_str_accessible_arena_game_objects(temp_address).split(",")]
-  if output not in x: 
+  if output not in x:
     output = random.choice(x)
 
-  if debug or verbose: 
-    print_run_prompts(prompt_template, persona, gpt_param, 
+  if debug or verbose:
+    print_run_prompts(prompt_template, persona, gpt_param,
                       prompt_input, prompt, output)
-  
+
   return output, [output, prompt, gpt_param, prompt_input, fail_safe]
 
 
@@ -824,8 +847,12 @@ def run_gpt_prompt_pronunciatio(action_description, persona, verbose=False):
     return True 
     return True
 
+  if getattr(persona.scratch, 'agent_tier', 1) == 2:
+    emoji = _LITE_ROLE_EMOJI.get(getattr(persona.scratch, 'role', ''), "🧑")
+    return emoji, [emoji, "", {}, [], emoji]
+
   print ("asdhfapsh8p9hfaiafdsi;ldfj as DEBUG 4") ########
-  gpt_param = {"engine": "text-davinci-002", "max_tokens": 15, 
+  gpt_param = {"engine": "text-davinci-002", "max_tokens": 15,
                "temperature": 0, "top_p": 1, "stream": False,
                "frequency_penalty": 0, "presence_penalty": 0, "stop": None}
   prompt_template = "persona/prompt_template/v3_ChatGPT/generate_pronunciatio_v1.txt" ########
@@ -933,13 +960,18 @@ def run_gpt_prompt_event_triple(action_description, persona, verbose=False):
 
 
 
-  gpt_param = {"engine": "text-davinci-003", "max_tokens": 30, 
+  if getattr(persona.scratch, 'agent_tier', 1) == 2:
+    act = action_description.split("(")[0].strip() if "(" in action_description else action_description
+    triple = (persona.name, "is", act[:40])
+    return triple, [triple, "", {}, [], triple]
+
+  gpt_param = {"engine": "text-davinci-003", "max_tokens": 30,
                "temperature": 0, "top_p": 1, "stream": False,
                "frequency_penalty": 0, "presence_penalty": 0, "stop": ["\n"]}
   prompt_template = "persona/prompt_template/v2/generate_event_triple_v1.txt"
   prompt_input = create_prompt_input(action_description, persona)
   prompt = generate_prompt(prompt_input, prompt_template)
-  fail_safe = get_fail_safe(persona) ########
+  fail_safe = get_fail_safe(persona)
   output = safe_generate_response(prompt, gpt_param, 5, fail_safe,
                                    __func_validate, __func_clean_up)
   output = (persona.name, output[0], output[1])
