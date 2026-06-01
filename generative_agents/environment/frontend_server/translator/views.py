@@ -234,30 +234,39 @@ def replay(request, sim_code, step):
   return render(request, template, context)
 
 
-def replay_persona_state(request, sim_code, step, persona_name): 
-  sim_code = sim_code
-  step = int(step)
+def _load_persona_state(sim_code, persona_name):
+  """Load a persona's memory state (scratch / spatial / associative memory).
 
+  Shared by the standalone persona_state page and the AJAX
+  persona_state_json endpoint used by the in-map side panel.
+
+  ARGS:
+    sim_code: simulation code
+    persona_name: underscore-joined persona name (e.g. "Abigail_Cruz")
+  RETURNS:
+    dict with persona_name, persona_name_underscore, scratch, spatial,
+    and the event / chat / thought associative-memory lists (newest first).
+  """
   persona_name_underscore = persona_name
   persona_name = " ".join(persona_name.split("_"))
   memory = f"storage/{sim_code}/personas/{persona_name}/bootstrap_memory"
-  if not os.path.exists(memory): 
+  if not os.path.exists(memory):
     memory = f"compressed_storage/{sim_code}/personas/{persona_name}/bootstrap_memory"
 
-  with open(memory + "/scratch.json") as json_file:  
+  with open(memory + "/scratch.json") as json_file:
     scratch = json.load(json_file)
 
-  with open(memory + "/spatial_memory.json") as json_file:  
+  with open(memory + "/spatial_memory.json") as json_file:
     spatial = json.load(json_file)
 
-  with open(memory + "/associative_memory/nodes.json") as json_file:  
+  with open(memory + "/associative_memory/nodes.json") as json_file:
     associative = json.load(json_file)
 
   a_mem_event = []
   a_mem_chat = []
   a_mem_thought = []
 
-  for count in range(len(associative.keys()), 0, -1): 
+  for count in range(len(associative.keys()), 0, -1):
     node_id = f"node_{str(count)}"
     node_details = associative[node_id]
 
@@ -269,18 +278,35 @@ def replay_persona_state(request, sim_code, step, persona_name):
 
     elif node_details["type"] == "thought":
       a_mem_thought += [node_details]
-  
+
+  return {"persona_name": persona_name,
+          "persona_name_underscore": persona_name_underscore,
+          "scratch": scratch,
+          "spatial": spatial,
+          "a_mem_event": a_mem_event,
+          "a_mem_chat": a_mem_chat,
+          "a_mem_thought": a_mem_thought}
+
+
+def replay_persona_state(request, sim_code, step, persona_name):
+  step = int(step)
+  state = _load_persona_state(sim_code, persona_name)
+
   context = {"sim_code": sim_code,
              "step": step,
-             "persona_name": persona_name, 
-             "persona_name_underscore": persona_name_underscore, 
-             "scratch": scratch,
-             "spatial": spatial,
-             "a_mem_event": a_mem_event,
-             "a_mem_chat": a_mem_chat,
-             "a_mem_thought": a_mem_thought}
+             **state}
   template = "persona_state/persona_state.html"
   return render(request, template, context)
+
+
+def persona_state_json(request, sim_code, persona_name):
+  """<BACKEND to FRONTEND> JSON variant of persona state for the in-map side
+  panel. Returns the same memory payload as replay_persona_state without a
+  page render so the panel can expand State Details inline. The standalone
+  view's <step> arg is unused for memory loading, so it is omitted here.
+  """
+  state = _load_persona_state(sim_code, persona_name)
+  return JsonResponse(state)
 
 
 def path_tester(request):

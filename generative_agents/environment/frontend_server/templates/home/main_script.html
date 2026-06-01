@@ -49,10 +49,13 @@
 	// Configuration meant to be passed to the main Phaser game instance. 
 	const config = {
 	  type: Phaser.AUTO,
-	  width: 1500,
-	  height: 800,
+	  width: window.innerWidth,
+	  height: window.innerHeight,
 	  parent: "game-container",
 	  pixelArt: true,
+	  scale: {
+	    mode: Phaser.Scale.RESIZE,
+	    autoCenter: Phaser.Scale.NO_CENTER },
 	  physics: {
 	    default: "arcade",
 	    arcade: {
@@ -84,6 +87,9 @@
 	let cursors;
 	let player;
 	let showDebug = false;
+	// Set true by a persona sprite's pointerdown so the scene-level pointerdown
+	// skips starting a camera drag (click selects the agent instead of panning).
+	let suppress_drag = false;
 
 	// Persona related variables. This should have the name of the persona as its
 	// keys, and the instances of the Persona class as the values.
@@ -283,10 +289,13 @@
 	                setSize(30, 40).
 	                setOffset(0, 0);
 	  player.setDepth(-1);
-	  // Setting up the camera.
+	  // Setting up the camera. Instead of locking the camera to the invisible
+	  // player sprite (which would fight click-drag / arrow panning), we center
+	  // once on the populated sectors and then let the user drive the camera
+	  // directly via wheel-zoom, click-drag, and arrow keys.
 	  const camera = this.cameras.main;
-	  camera.startFollow(player);
 	  camera.setBounds(0, 0, map.widthInPixels, map.heightInPixels);
+	  camera.centerOn(2912, 3648);
 	  cursors = this.input.keyboard.createCursorKeys();
 
 	  // Mousewheel zoom: scroll up = zoom in, scroll down = zoom out (0.2x – 3x).
@@ -295,6 +304,31 @@
 	    const newZoom = Phaser.Math.Clamp(cam.zoom - deltaY * 0.001, 0.2, 3);
 	    cam.setZoom(newZoom);
 	  }, this);
+
+	  // *** CLICK-AND-DRAG PANNING ***
+	  // Drag anywhere on empty map to pan. We track drag on the scene-level
+	  // pointer; a drag that starts on a persona sprite is suppressed (the
+	  // sprite's own pointerdown sets <suppress_drag>) so clicking an agent
+	  // selects them instead of panning.
+	  let is_dragging = false;
+	  let drag_start = { x: 0, y: 0 };
+	  this.input.on("pointerdown", function(pointer) {
+	    if (suppress_drag) { suppress_drag = false; return; }
+	    is_dragging = true;
+	    drag_start.x = pointer.x;
+	    drag_start.y = pointer.y;
+	  }, this);
+	  this.input.on("pointermove", function(pointer) {
+	    if (!is_dragging) return;
+	    const cam = this.cameras.main;
+	    cam.scrollX -= (pointer.x - drag_start.x) / cam.zoom;
+	    cam.scrollY -= (pointer.y - drag_start.y) / cam.zoom;
+	    drag_start.x = pointer.x;
+	    drag_start.y = pointer.y;
+	  }, this);
+	  const end_drag = function() { is_dragging = false; };
+	  this.input.on("pointerup", end_drag, this);
+	  this.input.on("pointerupoutside", end_drag, this);
 
 	  // *** SET UP PERSONAS *** 
 	  // We start by creating the game sprite objects. 
@@ -308,16 +342,38 @@
 	                         .setOffset(0, 32); // DEBUG 1 --- I added 32 offset on Dec 29. 
 	    // Here, we are creating the persona and its pronunciatio sprites.
 	    personas[persona_name] = new_sprite;
-	    pronunciatios[persona_name] = this.add.text(
-	                                   new_sprite.body.x - 6, 
-	                                   new_sprite.body.y - 42 - 32, // DEBUG 1 --- I added 32 offset on Dec 29. 
+	    let label = this.add.text(
+	                                   new_sprite.body.x - 6,
+	                                   new_sprite.body.y - 42 - 32, // DEBUG 1 --- I added 32 offset on Dec 29.
 	                                   "🦁", {
-	                                   font: "28px monospace", 
-	                                   fill: "#000000", 
-	                                   padding: { x: 8, y: 8}, 
+	                                   font: "28px monospace",
+	                                   fill: "#000000",
+	                                   padding: { x: 8, y: 8},
 	                                   backgroundColor: "#ffffff",
 	                                   border:"solid",
 	                                   borderRadius:"10px"}).setDepth(3);
+	    pronunciatios[persona_name] = label;
+
+	    // *** CLICK / HOVER INTERACTIVITY ***
+	    // Both the sprite and its floating label open the side panel on click and
+	    // show the hover tooltip. selectPersona / showTooltip / hideTooltip live
+	    // in home.html. We capture persona_name per-iteration via a closure.
+	    const pn = persona_name;
+	    [new_sprite, label].forEach(obj => {
+	      obj.setInteractive({ useHandCursor: true });
+	      obj.on("pointerdown", function(pointer, lx, ly, event) {
+	        suppress_drag = true;            // don't start a camera drag
+	        if (event) event.stopPropagation();
+	        selectPersona(pn);
+	      });
+	      obj.on("pointerover", function(pointer) {
+	        showTooltip(pn, pointer.event.clientX, pointer.event.clientY);
+	      });
+	      obj.on("pointermove", function(pointer) {
+	        showTooltip(pn, pointer.event.clientX, pointer.event.clientY);
+	      });
+	      obj.on("pointerout", function() { hideTooltip(); });
+	    });
 	  }
 
 	  // Create the player's walking animations from the texture atlas. These are
@@ -365,25 +421,17 @@
 			game_pause();
 		};
 
-	  // *** MOVE CAMERA *** 
-	  // This is where we finish up the camera setting we started in the create() 
-	  // function. We set the movement speed of the camera and wire up the keys to
-	  // map to the actual movement.
-	  const camera_speed = 400;
-	  // Stop any previous movement from the last frame
-	  player.body.setVelocity(0);
-	  if (cursors.left.isDown) {
-	    player.body.setVelocityX(-camera_speed);
-	  } 
-	  if (cursors.right.isDown) {
-	    player.body.setVelocityX(camera_speed);
-	  } 
-	  if (cursors.up.isDown) {
-	    player.body.setVelocityY(-camera_speed);
-	  } 
-	  if (cursors.down.isDown) {
-	    player.body.setVelocityY(camera_speed);
-	  }
+	  // *** MOVE CAMERA ***
+	  // The camera is no longer locked to the player sprite, so arrow keys scroll
+	  // the camera directly. Speed is divided by zoom so panning feels consistent
+	  // at any zoom level. Click-drag panning is wired up in create().
+	  const camera_speed = 12;
+	  const cam = this.cameras.main;
+	  const pan_step = camera_speed / cam.zoom;
+	  if (cursors.left.isDown)  cam.scrollX -= pan_step;
+	  if (cursors.right.isDown) cam.scrollX += pan_step;
+	  if (cursors.up.isDown)    cam.scrollY -= pan_step;
+	  if (cursors.down.isDown)  cam.scrollY += pan_step;
 
 	  // console.log("phase: " + phase + ", step: " + step);
 	  // *** MOVE PERSONAS ***
@@ -464,6 +512,11 @@
 	      document.getElementById("target_address__" + curr_persona_name_os).innerHTML = description_content.split("@")[1];
 	      document.getElementById("chat__" + curr_persona_name_os).innerHTML = chat_content;
 	    }
+
+	    // If the side panel is open, refresh its visible fields from the freshly
+	    // written live spans. syncPanel is a no-op when no persona is selected.
+	    let _active = document.getElementById("persona_panel").getAttribute("data-active-persona");
+	    if (_active) syncPanel(_active);
 
 	    let all_persona_names = Object.keys(personas);
 

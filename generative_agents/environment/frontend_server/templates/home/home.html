@@ -2,82 +2,364 @@
 {% load static %}
 
 {% block content %}
-<br>
-<br>
-<div>
-	<div id="game-container" style="text-align: center"></div>
 
-	<div style="width:55%; margin: 0 auto; margin-top:4.5em">
-		<h3 style="margin-bottom:-0.5em; font-size:1.5em">Current Time:</h3>
-		<div class="row">
-			<div class="col-md-8" id="game-time" style="">
-				<h2><span id="game-time-content"></span></h2> 
-			</div>
-			<div class="col-md-4">
-				
-				<h2 style="text-align: right; {% if mode == 'simulate' %} display: none {% endif %}">
-					<button id="play_button" type="button" class="btn btn-default">
-				    <strong style=" font-size:1.2em"><i class="glyphicon glyphicon-play"></i> &nbsp;Play</strong>
-				  </button>
-				  
-				  <button id="pause_button" type="button" class="btn btn-default">
-				    <strong style=" font-size:1.2em"><i class="glyphicon glyphicon-pause"></i> &nbsp;Pause</strong>
-				  </button>
+<!-- ==================================================================== -->
+<!-- FULL-VIEWPORT MAP HOST                                                -->
+<!-- Phaser renders into this fixed, full-screen layer.                    -->
+<!-- ==================================================================== -->
+<div id="game-container" class="fixed inset-0 bg-slate-200 overflow-hidden select-none"></div>
 
-				</h2>
-				
-			</div>
+<!-- ==================================================================== -->
+<!-- LIVE-SIMULATION DISCLAIMER BANNER (simulate mode only)               -->
+<!-- ==================================================================== -->
+{% if mode == 'simulate' %}
+<div id="sim_disclaimer"
+		 class="fixed top-4 left-1/2 -translate-x-1/2 z-40 max-w-xl w-[92%]
+						bg-amber-50/95 border border-amber-300 text-amber-900 rounded-xl
+						shadow-lg backdrop-blur px-4 py-3 flex items-start gap-3">
+	<div class="text-xl leading-none mt-0.5">⚙️</div>
+	<div class="text-sm leading-snug">
+		<div class="font-semibold mb-0.5">Currently simulating — live view</div>
+		<ul class="list-disc list-inside space-y-0.5 text-amber-800">
+			<li>Playback controls (Play / Pause / scrub) are disabled while the backend drives steps.</li>
+			<li>Stepping waits on backend compute, so there may be pauses between steps.</li>
+			<li>State Details update in real time and may be partial while memory is still being written.</li>
+		</ul>
+	</div>
+	<button type="button" onclick="document.getElementById('sim_disclaimer').remove()"
+					class="ml-1 text-amber-500 hover:text-amber-700 text-lg leading-none">&times;</button>
+</div>
+{% endif %}
+
+<!-- ==================================================================== -->
+<!-- BOTTOM-LEFT HUD: current time + playback controls                    -->
+<!-- ==================================================================== -->
+<div class="fixed bottom-4 left-4 z-40">
+	<div class="bg-white/95 backdrop-blur border border-slate-200 rounded-2xl shadow-xl px-5 py-4 min-w-[16rem]">
+		<div class="text-xs uppercase tracking-wide text-slate-400 font-semibold">Current Time</div>
+		<div id="game-time-content" class="text-lg font-semibold text-ink mt-0.5">&mdash;</div>
+
+		<div class="mt-3 flex gap-2 {% if mode == 'simulate' %}hidden{% endif %}">
+			<button id="play_button" type="button"
+							class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent text-white text-sm font-medium hover:bg-indigo-500 transition">
+				<svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+				Play
+			</button>
+			<button id="pause_button" type="button"
+							class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-200 text-ink text-sm font-medium hover:bg-slate-300 transition">
+				<svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+				Pause
+			</button>
 		</div>
-
-		<br>
-		<hr style="border-color:#999999">
-		<br>
-
-		{% for p_name, p_name_os in persona_names %}
-			<div class="media" style="background-color:#EEEEEE; padding:1em; padding-left:3.5em; padding-right:2em; border-radius:10px">
-			  <div class="media-left media-middle">
-			    <a href="#">
-			      <img class="media-object" src="{% static 'img/atlas.png' %}" style="width:5em">
-			    </a>
-			  </div>
-			  <div class="media-body" style='padding-left:3em; padding-top:0.5em; padding-bottom:1em'>
-			  	<div class="row">
-			    	<h2 class="col-md-8" id="name__{{ p_name_os }}" style="margin-bottom:0.8em; font-size:1.85em; ">
-			    		{{p_name}} &nbsp;&nbsp;
-			    		<a href="{% url 'replay_persona_state' sim_code step p_name_os %}" style="font-size:0.6em">State Details</a>
-			    	</h2>
-			    </div>
-			    <div style="">
-					  <p style="font-size:1.2em"><strong>Current Action:</strong> <br><span id="current_action__{{ p_name_os }}"></span></p>
-					  <p style="font-size:1.2em"><strong>Location:</strong> <br><span id="target_address__{{ p_name_os }}"></span></p>
-					  <p style="font-size:1.2em"><strong>Current Conversation:</strong> <br><span id="chat__{{ p_name_os }}"></span></p>
-					</div>
-			  </div>
-			</div>	
-			<br>
-		{% endfor %}
-
-
-
-
-		
-
 	</div>
 </div>
 
-  
+<!-- ==================================================================== -->
+<!-- HELP HINT (bottom-right, subtle)                                     -->
+<!-- ==================================================================== -->
+<div class="fixed bottom-4 right-4 z-30 pointer-events-none">
+	<div id="map_hint" class="bg-slate-900/70 text-white text-xs rounded-lg px-3 py-2 backdrop-blur">
+		Scroll to zoom · Drag or arrow keys to pan · Click an agent for details
+	</div>
+</div>
 
+<!-- ==================================================================== -->
+<!-- HOVER TOOLTIP (single reusable element)                             -->
+<!-- ==================================================================== -->
+<div id="persona_tooltip"
+		 class="fixed z-50 hidden pointer-events-none max-w-xs bg-slate-900 text-white text-xs rounded-lg px-3 py-2 shadow-xl">
+	<div id="tooltip_name" class="font-semibold text-sm mb-0.5"></div>
+	<div id="tooltip_action" class="text-slate-200"></div>
+	<div id="tooltip_chat" class="text-indigo-200 mt-1 italic"></div>
+</div>
 
+<!-- ==================================================================== -->
+<!-- RIGHT SLIDE-OUT DETAIL PANEL                                         -->
+<!-- ==================================================================== -->
+<div id="persona_panel"
+		 data-active-persona=""
+		 class="fixed top-0 right-0 h-screen w-full sm:w-[26rem] z-50
+						bg-white shadow-2xl border-l border-slate-200
+						translate-x-full transition-transform duration-300 ease-out
+						flex flex-col">
 
-<div style="padding-bottom:15em"> </div>
+	<!-- Header -->
+	<div class="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0">
+		<div class="min-w-0">
+			<div class="text-xs uppercase tracking-wide text-slate-400 font-semibold">Agent</div>
+			<h2 id="panel_name" class="text-xl font-bold text-ink truncate">&mdash;</h2>
+		</div>
+		<button type="button" onclick="closePersonaPanel()"
+						class="shrink-0 ml-3 w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-500 hover:text-ink transition">
+			<svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
+		</button>
+	</div>
 
+	<!-- Scrollable body -->
+	<div class="flex-1 overflow-y-auto rv-scroll px-5 py-4 space-y-4">
+
+		<!-- Live state -->
+		<section>
+			<div class="text-xs uppercase tracking-wide text-slate-400 font-semibold mb-1">Current Action</div>
+			<div id="panel_action" class="text-sm text-ink">&mdash;</div>
+		</section>
+		<section>
+			<div class="text-xs uppercase tracking-wide text-slate-400 font-semibold mb-1">Location</div>
+			<div id="panel_location" class="text-sm text-ink">&mdash;</div>
+		</section>
+		<section>
+			<div class="text-xs uppercase tracking-wide text-slate-400 font-semibold mb-1">Current Conversation</div>
+			<div id="panel_chat" class="text-sm text-ink leading-relaxed"><em class="text-slate-400">None at the moment</em></div>
+		</section>
+
+		<!-- State Details expander -->
+		<section class="border-t border-slate-200 pt-3">
+			<button type="button" onclick="toggleStateDetails()"
+							class="w-full flex items-center justify-between text-left group">
+				<span class="text-sm font-semibold text-ink">State Details</span>
+				<svg id="state_details_chevron" class="w-5 h-5 text-slate-400 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+			</button>
+			<div id="state_details_body" class="hidden mt-3 space-y-4">
+				<div id="state_details_loading" class="text-sm text-slate-400">Loading…</div>
+				<div id="state_details_content" class="hidden space-y-4 text-sm"></div>
+			</div>
+		</section>
+	</div>
+</div>
+
+<!-- ==================================================================== -->
+<!-- HIDDEN STATE STORE                                                   -->
+<!-- main_script.html's update() writes the live action/location/chat for  -->
+<!-- EVERY persona into these spans each frame. The panel + tooltip read   -->
+<!-- from them for the selected / hovered persona, so the engine loop is   -->
+<!-- never touched and never errors on a missing element.                  -->
+<!-- ==================================================================== -->
+<div id="persona_state_store" style="display:none">
+	{% for p_name, p_name_os in persona_names %}
+		<span id="name__{{ p_name_os }}">{{ p_name }}</span>
+		<span id="current_action__{{ p_name_os }}"></span>
+		<span id="target_address__{{ p_name_os }}"></span>
+		<span id="chat__{{ p_name_os }}"></span>
+	{% endfor %}
+</div>
 
 <!-- partial -->
 <script src='https://cdn.jsdelivr.net/npm/phaser@latest/dist/phaser.js'></script>
-<script
-  src="https://code.jquery.com/jquery-3.7.1.min.js"
-  integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo="
-  crossorigin="anonymous"></script>
+
+<script type="text/javascript">
+	// ====================================================================
+	// SIDE PANEL + TOOLTIP CONTROLLER
+	// These functions are called from main_script.html's Phaser handlers.
+	// ====================================================================
+	const sim_code_for_state = "{{ sim_code }}";
+	// Per-persona cache of the fetched State Details payload (keyed by os name).
+	const stateDetailCache = {};
+
+	function osName(name) { return name.replace(/ /g, "_"); }
+
+	function readLiveSpan(prefix, os) {
+		const el = document.getElementById(prefix + "__" + os);
+		return el ? el.innerHTML : "";
+	}
+
+	// Push the currently-stored live values for <name> into the open panel.
+	// Called on select and again each step (via syncPanel) so the panel stays
+	// current while the simulation advances.
+	function syncPanel(name) {
+		const panel = document.getElementById("persona_panel");
+		if (panel.getAttribute("data-active-persona") !== name) return;
+		const os = osName(name);
+		const action = readLiveSpan("current_action", os);
+		const loc = readLiveSpan("target_address", os);
+		const chat = readLiveSpan("chat", os);
+		document.getElementById("panel_action").innerHTML = action || "&mdash;";
+		document.getElementById("panel_location").innerHTML = loc || "&mdash;";
+		document.getElementById("panel_chat").innerHTML =
+			chat || '<em class="text-slate-400">None at the moment</em>';
+	}
+
+	function selectPersona(name) {
+		const panel = document.getElementById("persona_panel");
+		panel.setAttribute("data-active-persona", name);
+		document.getElementById("panel_name").textContent = name;
+		// Reset the State Details expander for the newly selected persona.
+		document.getElementById("state_details_body").classList.add("hidden");
+		document.getElementById("state_details_chevron").classList.remove("rotate-180");
+		syncPanel(name);
+		panel.classList.remove("translate-x-full");
+	}
+
+	function closePersonaPanel() {
+		const panel = document.getElementById("persona_panel");
+		panel.classList.add("translate-x-full");
+		panel.setAttribute("data-active-persona", "");
+	}
+
+	// ---- State Details (inline, lazy-loaded from persona_state_json) ----
+	function toggleStateDetails() {
+		const body = document.getElementById("state_details_body");
+		const chevron = document.getElementById("state_details_chevron");
+		const isHidden = body.classList.contains("hidden");
+		if (isHidden) {
+			body.classList.remove("hidden");
+			chevron.classList.add("rotate-180");
+			loadStateDetails();
+		} else {
+			body.classList.add("hidden");
+			chevron.classList.remove("rotate-180");
+		}
+	}
+
+	function loadStateDetails() {
+		const name = document.getElementById("persona_panel").getAttribute("data-active-persona");
+		if (!name) return;
+		const os = osName(name);
+		const loading = document.getElementById("state_details_loading");
+		const content = document.getElementById("state_details_content");
+
+		if (stateDetailCache[os]) {
+			renderStateDetails(stateDetailCache[os]);
+			return;
+		}
+		loading.classList.remove("hidden");
+		loading.textContent = "Loading…";
+		content.classList.add("hidden");
+
+		fetch(`/persona_state_json/${encodeURIComponent(sim_code_for_state)}/${encodeURIComponent(os)}/`)
+			.then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+			.then(data => {
+				// Guard: user may have switched personas before the fetch resolved.
+				stateDetailCache[os] = data;
+				const active = document.getElementById("persona_panel").getAttribute("data-active-persona");
+				if (osName(active) === os) renderStateDetails(data);
+			})
+			.catch(() => { loading.textContent = "Could not load state details."; });
+	}
+
+	function esc(s) {
+		const d = document.createElement("div");
+		d.textContent = (s === null || s === undefined) ? "" : String(s);
+		return d.innerHTML;
+	}
+
+	function kvRows(pairs) {
+		return pairs.map(([k, v]) =>
+			`<div class="flex gap-3 py-1 border-b border-slate-100 last:border-0">
+				 <div class="w-36 shrink-0 font-semibold text-slate-500">${esc(k)}</div>
+				 <div class="flex-1 text-ink">${v}</div>
+			 </div>`).join("");
+	}
+
+	function listHtml(arr) {
+		if (!arr || !arr.length) return '<span class="text-slate-400">—</span>';
+		return '<ol class="list-decimal list-inside space-y-0.5">' +
+			arr.map(i => `<li>${esc(i)}</li>`).join("") + "</ol>";
+	}
+
+	function renderStateDetails(data) {
+		const loading = document.getElementById("state_details_loading");
+		const content = document.getElementById("state_details_content");
+		const s = data.scratch || {};
+
+		const section = (title, inner) =>
+			`<div>
+				 <div class="text-xs uppercase tracking-wide text-slate-400 font-semibold mb-1">${esc(title)}</div>
+				 ${inner}
+			 </div>`;
+
+		const basic = kvRows([
+			["First name", esc(s.first_name)],
+			["Last name", esc(s.last_name)],
+			["Age", esc(s.age)],
+			["Current time", esc(s.curr_time)],
+			["Current tile", esc(s.curr_tile)],
+		]);
+
+		const settings = kvRows([
+			["Vision Radius", esc(s.vision_r)],
+			["Attention BW", esc(s.att_bandwidth)],
+			["Retention", esc(s.retention)],
+		]);
+
+		const personality = kvRows([
+			["Innate", esc(s.innate)],
+			["Learned", esc(s.learned)],
+			["Currently", esc(s.currently)],
+			["Lifestyle", esc(s.lifestyle)],
+		]);
+
+		const actionState = kvRows([
+			["Daily Req", listHtml(s.daily_req)],
+			["Daily Schedule", listHtml(s.f_daily_schedule)],
+			["Action Address", esc(s.act_address)],
+			["Start Time", esc(s.act_start_time)],
+			["Duration", esc(s.act_duration)],
+			["Description", esc(s.act_description)],
+			["Pronunciatio", esc(s.act_pronunciatio)],
+		]);
+
+		const events = (data.a_mem_event || []).map(n =>
+			`<p class="py-1 border-b border-slate-100 last:border-0">
+				 <span class="text-slate-400">${esc(n.created)}:</span> <strong>${esc(n.description)}</strong>
+			 </p>`).join("") || '<span class="text-slate-400">—</span>';
+
+		const chats = (data.a_mem_chat || []).map(n => {
+			const lines = (n.filling || []).map(([nm, utt]) =>
+				`<div><span class="italic text-slate-500">${esc(nm)}</span>: ${esc(utt)}</div>`).join("");
+			return `<div class="py-2 border-b border-slate-100 last:border-0">
+								<div class="text-slate-400 text-xs">${esc(n.created)}</div>
+								<div class="font-medium">${esc(n.description)}</div>
+								<div class="mt-1 space-y-0.5">${lines}</div>
+							</div>`;
+		}).join("") || '<span class="text-slate-400">—</span>';
+
+		const thoughts = (data.a_mem_thought || []).map(n =>
+			`<p class="py-1 border-b border-slate-100 last:border-0">
+				 <span class="text-slate-400">${esc(n.created)}:</span> ${esc(n.description)}
+			 </p>`).join("") || '<span class="text-slate-400">—</span>';
+
+		content.innerHTML = [
+			section("Basic information", basic),
+			section("Settings", settings),
+			section("Personality & Lifestyle", personality),
+			section("Current Action State", actionState),
+			section("Memory — Events", `<div class="text-sm">${events}</div>`),
+			section("Memory — Conversations", `<div class="text-sm">${chats}</div>`),
+			section("Memory — Thoughts", `<div class="text-sm">${thoughts}</div>`),
+		].join('<div class="border-t border-slate-200"></div>');
+
+		loading.classList.add("hidden");
+		content.classList.remove("hidden");
+	}
+
+	// ---- Hover tooltip ----
+	function showTooltip(name, screenX, screenY) {
+		const os = osName(name);
+		const tip = document.getElementById("persona_tooltip");
+		document.getElementById("tooltip_name").textContent = name;
+		const action = readLiveSpan("current_action", os);
+		document.getElementById("tooltip_action").innerHTML = action || "—";
+		const chatEl = document.getElementById("tooltip_chat");
+		const chat = readLiveSpan("chat", os);
+		// Only show a chat snippet when there's an actual conversation.
+		if (chat && chat.indexOf("None at the moment") === -1) {
+			// Strip the <br>-joined transcript to a short single-line snippet.
+			const txt = chat.replace(/<br\s*\/?>/gi, " · ").replace(/<[^>]+>/g, "");
+			chatEl.textContent = txt.length > 120 ? txt.slice(0, 117) + "…" : txt;
+			chatEl.classList.remove("hidden");
+		} else {
+			chatEl.textContent = "";
+			chatEl.classList.add("hidden");
+		}
+		tip.style.left = Math.min(screenX + 14, window.innerWidth - 280) + "px";
+		tip.style.top = Math.max(screenY - 10, 8) + "px";
+		tip.classList.remove("hidden");
+	}
+
+	function hideTooltip() {
+		document.getElementById("persona_tooltip").classList.add("hidden");
+	}
+</script>
+
 {% include 'home/main_script.html' %}
 {% endblock content %}
-
