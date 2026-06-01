@@ -5,10 +5,14 @@ File: converse.py
 Description: An extra cognitive module for generating conversations. 
 """
 import math
+import os
 import sys
 import datetime
 import random
 sys.path.append('../')
+
+# Conversations run up to this many back-and-forth turns. Lower = cheaper steps.
+_CONVO_MAX_TURNS = int(os.environ.get("CONVO_MAX_TURNS", 4))
 
 from global_methods import *
 
@@ -114,33 +118,32 @@ def generate_one_utterance(maze, init_persona, target_persona, retrieved, curr_c
               f"is initiating a conversation with " +
               f"{target_persona.scratch.name}.")
 
-  print ("July 23 5")
   x = run_gpt_generate_iterative_chat_utt(maze, init_persona, target_persona, retrieved, curr_context, curr_chat)[0]
-
-  print ("July 23 6")
-
-  print ("adshfoa;khdf;fajslkfjald;sdfa HERE", x)
 
   return x["utterance"], x["end"]
 
-def agent_chat_v2(maze, init_persona, target_persona): 
+def agent_chat_v2(maze, init_persona, target_persona):
   curr_chat = []
-  print ("July 23")
 
-  for i in range(8): 
-    focal_points = [f"{target_persona.scratch.name}"]
-    retrieved = new_retrieve(init_persona, focal_points, 50)
-    relationship = generate_summarize_agent_relationship(init_persona, target_persona, retrieved)
-    print ("-------- relationshopadsjfhkalsdjf", relationship)
+  # A persona's view of the other is stable across a single conversation, so we
+  # summarize each relationship ONCE up front rather than regenerating it every
+  # turn (the original ran an LLM call + a 50-node retrieval per speaker per
+  # turn). Combined with the turn cap this is the main per-step cost reduction.
+  retrieved = new_retrieve(init_persona, [f"{target_persona.scratch.name}"], 50)
+  rel_init = generate_summarize_agent_relationship(init_persona, target_persona, retrieved)
+  retrieved = new_retrieve(target_persona, [f"{init_persona.scratch.name}"], 50)
+  rel_target = generate_summarize_agent_relationship(target_persona, init_persona, retrieved)
+
+  for i in range(_CONVO_MAX_TURNS):
     last_chat = ""
-    for i in curr_chat[-4:]:
-      last_chat += ": ".join(i) + "\n"
-    if last_chat: 
-      focal_points = [f"{relationship}", 
-                      f"{target_persona.scratch.name} is {target_persona.scratch.act_description}", 
+    for c in curr_chat[-4:]:
+      last_chat += ": ".join(c) + "\n"
+    if last_chat:
+      focal_points = [f"{rel_init}",
+                      f"{target_persona.scratch.name} is {target_persona.scratch.act_description}",
                       last_chat]
-    else: 
-      focal_points = [f"{relationship}", 
+    else:
+      focal_points = [f"{rel_init}",
                       f"{target_persona.scratch.name} is {target_persona.scratch.act_description}"]
     retrieved = new_retrieve(init_persona, focal_points, 15)
     utt, end = generate_one_utterance(maze, init_persona, target_persona, retrieved, curr_chat)
@@ -150,19 +153,15 @@ def agent_chat_v2(maze, init_persona, target_persona):
       break
 
 
-    focal_points = [f"{init_persona.scratch.name}"]
-    retrieved = new_retrieve(target_persona, focal_points, 50)
-    relationship = generate_summarize_agent_relationship(target_persona, init_persona, retrieved)
-    print ("-------- relationshopadsjfhkalsdjf", relationship)
     last_chat = ""
-    for i in curr_chat[-4:]:
-      last_chat += ": ".join(i) + "\n"
-    if last_chat: 
-      focal_points = [f"{relationship}", 
-                      f"{init_persona.scratch.name} is {init_persona.scratch.act_description}", 
+    for c in curr_chat[-4:]:
+      last_chat += ": ".join(c) + "\n"
+    if last_chat:
+      focal_points = [f"{rel_target}",
+                      f"{init_persona.scratch.name} is {init_persona.scratch.act_description}",
                       last_chat]
-    else: 
-      focal_points = [f"{relationship}", 
+    else:
+      focal_points = [f"{rel_target}",
                       f"{init_persona.scratch.name} is {init_persona.scratch.act_description}"]
     retrieved = new_retrieve(target_persona, focal_points, 15)
     utt, end = generate_one_utterance(maze, target_persona, init_persona, retrieved, curr_chat)
@@ -170,11 +169,6 @@ def agent_chat_v2(maze, init_persona, target_persona):
     curr_chat += [[target_persona.scratch.name, utt]]
     if end:
       break
-
-  print ("July 23 PU")
-  for row in curr_chat: 
-    print (row)
-  print ("July 23 FIN")
 
   return curr_chat
 

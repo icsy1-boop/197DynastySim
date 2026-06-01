@@ -149,24 +149,36 @@ def reflection_trigger(persona):
   print (persona.scratch.name, "persona.scratch.importance_trigger_curr::", persona.scratch.importance_trigger_curr)
   print (persona.scratch.importance_trigger_max)
 
-  if (persona.scratch.importance_trigger_curr <= 0 and 
-      [] != persona.a_mem.seq_event + persona.a_mem.seq_thought): 
-    return True 
-  return False
+  tier = getattr(persona.scratch, 'agent_tier', 2)
+  if tier == 1:
+    threshold = 0
+  else:
+    # Tier-2 needs ~7000 total importance before reflecting (staggered naturally
+    # by each agent's accumulation rate, avoiding a thundering-herd on the LLM).
+    threshold = -(7000 - persona.scratch.importance_trigger_max)
+
+  if not (persona.scratch.importance_trigger_curr <= threshold and
+          [] != persona.a_mem.seq_event + persona.a_mem.seq_thought):
+    return False
+
+  return True
 
 
-def reset_reflection_counter(persona): 
+def reset_reflection_counter(persona):
   """
-  We reset the counters used for the reflection trigger. 
+  We reset the counters used for the reflection trigger.
 
-  INPUT: 
+  INPUT:
     persona: Current Persona object
-  Output: 
+  Output:
     None
   """
   persona_imt_max = persona.scratch.importance_trigger_max
   persona.scratch.importance_trigger_curr = persona_imt_max
   persona.scratch.importance_ele_n = 0
+  # Record when this agent last reflected (used for Tier-2 weekly cooldown)
+  persona.scratch.last_reflect_time = persona.scratch.curr_time.strftime(
+      "%B %d, %Y, %H:%M:%S")
 
 
 def reflect(persona):

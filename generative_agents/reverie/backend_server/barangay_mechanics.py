@@ -123,7 +123,8 @@ def _estimate_agent_corruption(persona, agent_row):
     return max(0.0, min(1.0, raw))
 
 
-def log_corruption_step(personas, agent_rows_by_name, step, curr_time, output_path):
+def log_corruption_step(personas, agent_rows_by_name, step, curr_time, output_path,
+                        event_bonus=0.0):
     """
     Compute a barangay-wide corruption index for this sim step and append it
     to a running CSV log at <output_path>/corruption_log.csv.
@@ -133,6 +134,12 @@ def log_corruption_step(personas, agent_rows_by_name, step, curr_time, output_pa
     step:              current simulation step integer
     curr_time:         datetime of current step
     output_path:       directory path for output files
+    event_bonus:       persistent corruption accumulated from active corruption
+                       events (barangay_corruption_events). Trait-based index is
+                       a baseline; events add on top so the 10-step recompute does
+                       not erase witnessed corruption.
+
+    Returns dict: {corruption_index, welfare_score, unrest, dynasty_bonus}.
     """
     os.makedirs(output_path, exist_ok=True)
     log_file = os.path.join(output_path, "corruption_log.csv")
@@ -164,21 +171,34 @@ def log_corruption_step(personas, agent_rows_by_name, step, curr_time, output_pa
             dynasty_bonus += (count - 1) * 0.05
 
     corruption_index = (weighted_corruption / total_weight if total_weight else 0.0)
-    corruption_index = max(0.0, min(1.0, corruption_index + dynasty_bonus))
+    corruption_index = max(0.0, min(1.0, corruption_index + dynasty_bonus + event_bonus))
+
+    # Derived welfare & unrest (the feedback loop the news bulletin surfaces):
+    # welfare starts from the population's mean satisfaction and is dragged down
+    # by corruption; unrest rises with corruption and falls with welfare.
+    sats = [float(r.get("satisfaction", 50)) for r in agent_rows_by_name.values()
+            if r.get("satisfaction") not in (None, "")]
+    base_welfare = (sum(sats) / len(sats) / 100.0) if sats else 0.5
+    welfare_score = max(0.0, min(1.0, base_welfare * (1.0 - 0.5 * corruption_index)))
+    unrest = max(0.0, min(1.0, 0.15 + 0.6 * corruption_index - 0.4 * (welfare_score - 0.5)))
 
     write_header = not os.path.exists(log_file)
     with open(log_file, "a", newline="") as f:
         writer = csv.writer(f)
         if write_header:
-            writer.writerow(["step", "datetime", "corruption_index", "dynasty_bonus"])
+            writer.writerow(["step", "datetime", "corruption_index", "dynasty_bonus",
+                             "welfare", "unrest"])
         writer.writerow([
             step,
             curr_time.strftime("%Y-%m-%d %H:%M:%S"),
             f"{corruption_index:.4f}",
             f"{dynasty_bonus:.4f}",
+            f"{welfare_score:.4f}",
+            f"{unrest:.4f}",
         ])
 
-    return corruption_index
+    return {"corruption_index": corruption_index, "welfare_score": welfare_score,
+            "unrest": unrest, "dynasty_bonus": dynasty_bonus}
 
 
 def load_agent_rows(csv_path):

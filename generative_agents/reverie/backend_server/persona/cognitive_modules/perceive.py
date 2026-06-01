@@ -50,20 +50,23 @@ def perceive(persona, maze):
   # in the form of a tree constructed using dictionaries. 
   for i in nearby_tiles: 
     i = maze.access_tile(i)
-    if i["world"]: 
-      if (i["world"] not in persona.s_mem.tree): 
+    # Guard each level against an empty parent key: a tile may carry a
+    # game_object/arena without a full sector/arena underneath (map glitches),
+    # which would otherwise raise KeyError('') on the nested lookups below.
+    if i["world"]:
+      if (i["world"] not in persona.s_mem.tree):
         persona.s_mem.tree[i["world"]] = {}
-    if i["sector"]: 
-      if (i["sector"] not in persona.s_mem.tree[i["world"]]): 
+    if i["world"] and i["sector"]:
+      if (i["sector"] not in persona.s_mem.tree[i["world"]]):
         persona.s_mem.tree[i["world"]][i["sector"]] = {}
-    if i["arena"]: 
+    if i["world"] and i["sector"] and i["arena"]:
       if (i["arena"] not in persona.s_mem.tree[i["world"]]
-                                              [i["sector"]]): 
+                                              [i["sector"]]):
         persona.s_mem.tree[i["world"]][i["sector"]][i["arena"]] = []
-    if i["game_object"]: 
+    if i["world"] and i["sector"] and i["arena"] and i["game_object"]:
       if (i["game_object"] not in persona.s_mem.tree[i["world"]]
                                                     [i["sector"]]
-                                                    [i["arena"]]): 
+                                                    [i["arena"]]):
         persona.s_mem.tree[i["world"]][i["sector"]][i["arena"]] += [
                                                              i["game_object"]]
 

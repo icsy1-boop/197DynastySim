@@ -16,6 +16,8 @@ from persona.prompt_template.run_gpt_prompt import *
 from persona.cognitive_modules.retrieve import *
 from persona.cognitive_modules.converse import *
 
+_pronunciatio_cache = dict()
+
 ##############################################################################
 # CHAPTER 2: Generate
 ##############################################################################
@@ -239,13 +241,15 @@ def generate_action_pronunciatio(act_desp, persona):
     "🧈🍞"
   """
   if debug: print ("GNS FUNCTION: <generate_action_pronunciatio>")
-  try: 
+  if act_desp in _pronunciatio_cache:
+    return _pronunciatio_cache[act_desp]
+  try:
     x = run_gpt_prompt_pronunciatio(act_desp, persona)[0]
-  except: 
+  except:
     x = "🙂"
-
-  if not x: 
-    return "🙂"
+  if not x:
+    x = "🙂"
+  _pronunciatio_cache[act_desp] = x
   return x
 
 
@@ -704,9 +708,38 @@ def _choose_retrieved(persona, retrieved):
   return None
 
 
-def _should_react(persona, retrieved, personas): 
+import os as _os
+# Conversation is gated by task priority: an agent whose CURRENT task has a
+# priority at/above this threshold keeps doing the task instead of stopping to
+# chat. At high agent density this is what lets agents actually execute their
+# daily plans (commute, work) instead of chaining conversations forever.
+# Tunable via the CONV_PRIORITY_THRESHOLD env var (default 6; 0..10 scale).
+CONVERSATION_PRIORITY_THRESHOLD = int(_os.environ.get("CONV_PRIORITY_THRESHOLD", 6))
+
+_HIGH_PRIORITY_KW = ["work", "office", "school", "class", "teach", "duty",
+    "patrol", "meeting", "council", "session", "budget", "audit", "inspect",
+    "procure", "treasury", "clinic", "patient", "factory", "construction",
+    "shift", "going to", "heading to", "commut", "report to", "attend",
+    "on the way", "walking to", "traveling", "travelling"]
+_LOW_PRIORITY_KW = ["relax", "rest", "idle", "sleep", "eat", "lunch", "dinner",
+    "breakfast", "leisure", "watch", "hang", "stroll", "free time", "break",
+    "chatting", "talking", "at home"]
+
+def _task_priority(persona):
+  """Rough 0-10 priority of the persona's current action from its description."""
+  d = (persona.scratch.act_description or "").lower()
+  for k in _HIGH_PRIORITY_KW:
+    if k in d:
+      return 9
+  for k in _LOW_PRIORITY_KW:
+    if k in d:
+      return 2
+  return 5  # neutral / unknown
+
+
+def _should_react(persona, retrieved, personas):
   """
-  Determines what form of reaction the persona should exihibit given the 
+  Determines what form of reaction the persona should exihibit given the
   retrieved values. 
   INPUT
     persona: Current <Persona> instance whose action we are determining. 
@@ -741,11 +774,29 @@ def _should_react(persona, retrieved, personas):
       or init_persona.scratch.chatting_with): 
       return False
 
-    if (target_persona.name in init_persona.scratch.chatting_with_buffer): 
-      if init_persona.scratch.chatting_with_buffer[target_persona.name] > 0: 
+    if (target_persona.name in init_persona.scratch.chatting_with_buffer):
+      if init_persona.scratch.chatting_with_buffer[target_persona.name] > 0:
         return False
 
-    if generate_decide_to_talk(init_persona, target_persona, retrieved): 
+    # Global post-chat cooldown: if the agent chatted with ANYONE within the
+    # last CHAT_COOLDOWN_STEPS steps, block new conversations. Prevents
+    # conversation chaining at high density (stacked tiles have 10+ agents,
+    # enough to chain through even with per-person 800-step buffers).
+    # Buffer starts at 800 and decrements 1/step, so value > 800-N means
+    # the chat happened within the last N steps.
+    _CHAT_COOLDOWN_STEPS = int(_os.environ.get("CHAT_COOLDOWN_STEPS", 6))
+    if any(v > 800 - _CHAT_COOLDOWN_STEPS
+           for v in init_persona.scratch.chatting_with_buffer.values()):
+      return False
+
+    # Task-priority gate: if the initiator is busy with a high-priority task
+    # (commuting, working, school, official duties...), they keep doing it
+    # instead of stopping to chat. Prevents perpetual conversation at high
+    # agent density so agents actually move and execute their daily plans.
+    if _task_priority(init_persona) >= CONVERSATION_PRIORITY_THRESHOLD:
+      return False
+
+    if generate_decide_to_talk(init_persona, target_persona, retrieved):
 
       return True
 

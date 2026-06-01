@@ -103,27 +103,36 @@ def UIST_Demo(request):
 
 
 def home(request):
-  f_curr_sim_code = "temp_storage/curr_sim_code.json"
   f_curr_step = "temp_storage/curr_step.json"
 
-  if not check_if_file_exists(f_curr_step): 
-    context = {}
-    template = "home/error_start_backend.html"
-    return render(request, template, context)
+  # Priority: ?sim= query param > DEFAULT_SIM_CODE env var > curr_sim_code.json file
+  sim_code = (request.GET.get('sim')
+              or os.environ.get('DEFAULT_SIM_CODE'))
+  if not sim_code:
+    f_curr_sim_code = "temp_storage/curr_sim_code.json"
+    if not check_if_file_exists(f_curr_sim_code):
+      context = {}
+      template = "home/error_start_backend.html"
+      return render(request, template, context)
+    with open(f_curr_sim_code) as json_file:
+      sim_code = json.load(json_file)["sim_code"]
 
-  with open(f_curr_sim_code) as json_file:  
-    sim_code = json.load(json_file)["sim_code"]
-  
-  with open(f_curr_step) as json_file:  
-    step = json.load(json_file)["step"]
-
-  os.remove(f_curr_step)
+  if check_if_file_exists(f_curr_step):
+    with open(f_curr_step) as json_file:
+      step = json.load(json_file)["step"]
+    os.remove(f_curr_step)
+  else:
+    # Late join: find the latest completed movement step.
+    move_files = find_filenames(f"storage/{sim_code}/movement", ".json")
+    nums = [int(f.split("/")[-1].split(".")[0]) for f in move_files
+            if f.split("/")[-1][0] != "."]
+    step = max(nums) if nums else 0
 
   persona_names = []
   persona_names_set = set()
-  for i in find_filenames(f"storage/{sim_code}/personas", ""): 
+  for i in find_filenames(f"storage/{sim_code}/personas", ""):
     x = i.split("/")[-1].strip()
-    if x[0] != ".": 
+    if x[0] != ".":
       persona_names += [[x, x.replace(" ", "_")]]
       persona_names_set.add(x)
 
@@ -131,19 +140,30 @@ def home(request):
   file_count = []
   for i in find_filenames(f"storage/{sim_code}/environment", ".json"):
     x = i.split("/")[-1].strip()
-    if x[0] != ".": 
+    if x[0] != ".":
       file_count += [int(x.split(".")[0])]
   curr_json = f'storage/{sim_code}/environment/{str(max(file_count))}.json'
-  with open(curr_json) as json_file:  
+  with open(curr_json) as json_file:
     persona_init_pos_dict = json.load(json_file)
-    for key, val in persona_init_pos_dict.items(): 
-      if key in persona_names_set: 
+    for key, val in persona_init_pos_dict.items():
+      if key in persona_names_set:
         persona_init_pos += [[key, val["x"], val["y"]]]
 
+  # Pre-load movement data so the JS execute_movement is never undefined,
+  # whether the user loads early or joins mid-run.
+  init_movement = "null"
+  move_path = f"storage/{sim_code}/movement/{step}.json"
+  if check_if_file_exists(move_path):
+    with open(move_path) as json_file:
+      mv = json.load(json_file)
+      mv["<step>"] = step
+      init_movement = json.dumps(mv)
+
   context = {"sim_code": sim_code,
-             "step": step, 
+             "step": step,
              "persona_names": persona_names,
              "persona_init_pos": persona_init_pos,
+             "init_movement": init_movement,
              "mode": "simulate"}
   template = "home/home.html"
   return render(request, template, context)
@@ -174,10 +194,19 @@ def replay(request, sim_code, step):
       if key in persona_names_set: 
         persona_init_pos += [[key, val["x"], val["y"]]]
 
+  init_movement = "null"
+  move_path = f"storage/{sim_code}/movement/{step}.json"
+  if check_if_file_exists(move_path):
+    with open(move_path) as json_file:
+      mv = json.load(json_file)
+      mv["<step>"] = step
+      init_movement = json.dumps(mv)
+
   context = {"sim_code": sim_code,
              "step": step,
              "persona_names": persona_names,
-             "persona_init_pos": persona_init_pos, 
+             "persona_init_pos": persona_init_pos,
+             "init_movement": init_movement,
              "mode": "replay"}
   template = "home/home.html"
   return render(request, template, context)

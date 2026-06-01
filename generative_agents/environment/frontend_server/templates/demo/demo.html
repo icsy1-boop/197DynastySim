@@ -110,38 +110,23 @@
 <script src='https://cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.js'></script>
 {% include 'demo/main_script.html' %}
 <script>
+	// One shared handler instead of an O(N^2) per-pair block (which was ~250k
+	// statements / 89 MB at 500 agents). Selects panels by id-prefix at runtime.
+	function showPersonaDetail(who) {
+		$("#on_screen_det_content-init").css({'display': 'none'});
+		$("[id^='on_screen_det_content-']").css({'display': 'none'});
+		$("[id^='on_screen_det_trigger-']").css({'font-weight': '500'});
+		$("[id^='on_screen_det_trigger_container-']").css({
+			'background-color': 'white', 'border-radius': '10px'});
+		$("#on_screen_det_trigger-" + who).css({'font-weight': '900'});
+		$("#on_screen_det_trigger_container-" + who).css({
+			'background-color': '#ABFF84', 'border-radius': '10px'});
+		$("#on_screen_det_content-" + who).css({'display': 'block'});
+		document.getElementById("temp_focus").innerHTML = who;
+	}
 	{% for p in persona_names %}
 		$('#on_screen_det_trigger-{{p.underscore}}').click(function() {
-			$('#on_screen_det_content-init').css({
-		      'display': 'none',
-		    });
-			{% for p_i in persona_names %}
-		    $('#on_screen_det_content-{{p_i.underscore}}').css({
-		      'display': 'none',
-		    });
-		    $('#on_screen_det_trigger-{{p_i.underscore}}').css({
-	      'font-weight': '500',
-		    });
-		    $('#on_screen_det_trigger_container-{{p_i.underscore}}').css({
-		      'background-color': 'white',
-		      'border-radius': '10px'
-		    });
-    	{% endfor %}
-
-    	$('#on_screen_det_trigger-{{p.underscore}}').css({
-	      'font-weight': '900',
-	    });
-	    $('#on_screen_det_trigger_container-{{p.underscore}}').css({
-	      'background-color': '#ABFF84',
-	      'border-radius': '10px'
-	    });
-	    $('#on_screen_det_content-{{p.underscore}}').css({
-	      'display': 'block',
-	    });
-
-	    document.getElementById("temp_focus").innerHTML = "{{p.underscore}}";
-
-		});
+			showPersonaDetail("{{p.underscore}}"); });
 	{% endfor %}
 </script>
 {% endblock js_content %}

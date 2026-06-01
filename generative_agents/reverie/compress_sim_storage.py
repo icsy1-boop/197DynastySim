@@ -30,25 +30,23 @@ def compress(sim_code):
     master_move[i] = dict()
     with open(f"{move_folder}/{str(i)}.json") as json_file:  
       i_move_dict = json.load(json_file)["persona"]
-      for p in persona_names: 
-        move = False
-        if i == 0: 
-          move = True
-        elif (i_move_dict[p]["movement"] != persona_last_move[p]["movement"]
-          or i_move_dict[p]["pronunciatio"] != persona_last_move[p]["pronunciatio"]
-          or i_move_dict[p]["description"] != persona_last_move[p]["description"]
-          or i_move_dict[p]["chat"] != persona_last_move[p]["chat"]): 
-          move = True
-
-        if move: 
-          persona_last_move[p] = {"movement": i_move_dict[p]["movement"],
-                                  "pronunciatio": i_move_dict[p]["pronunciatio"], 
-                                  "description": i_move_dict[p]["description"], 
-                                  "chat": i_move_dict[p]["chat"]}
-          master_move[i][p] = {"movement": i_move_dict[p]["movement"],
-                               "pronunciatio": i_move_dict[p]["pronunciatio"], 
-                               "description": i_move_dict[p]["description"], 
-                               "chat": i_move_dict[p]["chat"]}
+      for p in persona_names:
+        # Agents that SKIPped a step (LLM timeout) are omitted from that step's
+        # movement file. Skip them — they keep their previous position.
+        if p not in i_move_dict:
+          continue
+        cur = i_move_dict[p]
+        prev = persona_last_move.get(p)
+        if (prev is None
+            or cur["movement"] != prev["movement"]
+            or cur["pronunciatio"] != prev["pronunciatio"]
+            or cur["description"] != prev["description"]
+            or cur["chat"] != prev["chat"]):
+          persona_last_move[p] = {"movement": cur["movement"],
+                                  "pronunciatio": cur["pronunciatio"],
+                                  "description": cur["description"],
+                                  "chat": cur["chat"]}
+          master_move[i][p] = persona_last_move[p]
 
 
   create_folder_if_not_there(compressed_storage)

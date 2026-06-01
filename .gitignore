@@ -3,6 +3,8 @@ output/
 
 # AI assistant config
 .claude/
+# CLAUDE.md contains VM SSH creds + internal IPs — keep out of the public repo
+CLAUDE.md
 
 # Old Mesa-based simulation (replaced by generative_agents)
 front/

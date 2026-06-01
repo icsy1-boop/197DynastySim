@@ -66,6 +66,8 @@ class Scratch:
     # TWO-TIER SYSTEM
     self.agent_tier = 1   # 1 = full LLM, 2 = lite (skip emojis/object/triple)
     self.role = "citizen"
+    self.reflect_prob = 0.05   # Tier-2 only: probability of reflecting when threshold hit
+    self.last_reflect_time = None  # Tracks weekly cooldown
 
     # PERSONA PLANNING 
     # <daily_req> is a list of various goals the persona is aiming to achieve
@@ -206,18 +208,20 @@ class Scratch:
 
       self.agent_tier = scratch_load.get("agent_tier", 1)
       self.role = scratch_load.get("role", "citizen")
+      self.reflect_prob = scratch_load.get("reflect_prob", 0.05)
+      self.last_reflect_time = scratch_load.get("last_reflect_time", None)
 
       self.daily_req = scratch_load["daily_req"]
       self.f_daily_schedule = scratch_load["f_daily_schedule"]
       self.f_daily_schedule_hourly_org = scratch_load["f_daily_schedule_hourly_org"]
 
       self.act_address = scratch_load["act_address"]
-      if scratch_load["act_start_time"]: 
+      if scratch_load["act_start_time"]:
         self.act_start_time = datetime.datetime.strptime(
                                               scratch_load["act_start_time"],
                                               "%B %d, %Y, %H:%M:%S")
-      else: 
-        self.curr_time = None
+      else:
+        self.act_start_time = None
       self.act_duration = scratch_load["act_duration"]
       self.act_description = scratch_load["act_description"]
       self.act_pronunciatio = scratch_load["act_pronunciatio"]
@@ -287,14 +291,18 @@ class Scratch:
 
     scratch["agent_tier"] = self.agent_tier
     scratch["role"] = self.role
+    scratch["reflect_prob"] = self.reflect_prob
+    scratch["last_reflect_time"] = self.last_reflect_time
 
     scratch["daily_req"] = self.daily_req
     scratch["f_daily_schedule"] = self.f_daily_schedule
     scratch["f_daily_schedule_hourly_org"] = self.f_daily_schedule_hourly_org
 
     scratch["act_address"] = self.act_address
-    scratch["act_start_time"] = (self.act_start_time
-                                     .strftime("%B %d, %Y, %H:%M:%S"))
+    if self.act_start_time:
+      scratch["act_start_time"] = self.act_start_time.strftime("%B %d, %Y, %H:%M:%S")
+    else:
+      scratch["act_start_time"] = None
     scratch["act_duration"] = self.act_duration
     scratch["act_description"] = self.act_description
     scratch["act_pronunciatio"] = self.act_pronunciatio
@@ -563,7 +571,7 @@ class Scratch:
         x = (x + datetime.timedelta(minutes=1))
       end_time = (x + datetime.timedelta(minutes=self.act_duration))
 
-    if end_time.strftime("%H:%M:%S") == self.curr_time.strftime("%H:%M:%S"): 
+    if self.curr_time >= end_time:
       return True
     return False
 

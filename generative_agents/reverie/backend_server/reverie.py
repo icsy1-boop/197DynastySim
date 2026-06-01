@@ -28,7 +28,14 @@ import math
 import os
 import shutil
 import traceback
-from concurrent.futures import ThreadPoolExecutor
+import signal
+import random
+import faulthandler
+from concurrent.futures import ThreadPoolExecutor, as_completed, wait, FIRST_COMPLETED
+from persona.prompt_template.gpt_structure import set_persona_tier
+
+faulthandler.enable()
+faulthandler.register(signal.SIGUSR1, all_threads=True, chain=False)
 
 from selenium import webdriver
 
@@ -37,10 +44,25 @@ from utils import *
 from maze import *
 from persona.persona import *
 from barangay_mechanics import inject_dynasty_memories, log_corruption_step, load_agent_rows
+from barangay_election import (run_election, poll_political_intentions,
+                               announce_election, finalize_candidacy)
+from barangay_news import broadcast_news
+from barangay_corruption_events import step_corruption_events
 
-# Path to the barangay agents CSV (three levels up from backend_server/)
-_BARANGAY_CSV = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "../../../barangay_agents.csv"))
+# Path to the barangay agents CSV that this sim was bootstrapped from. MUST match
+# the running population or corruption/election/news see the wrong agents. Set via
+# the BARANGAY_CSV env var per sim (control -> dynasty CSV, treatment -> anti-dynasty CSV).
+_BARANGAY_CSV = os.environ.get("BARANGAY_CSV") or os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "../../../barangay_agents_qc_1000_final-1.csv"))
+
+# Election fires at this step (month 4 at 1hr/step = 2880; override via ELECTION_STEP env var)
+_ELECTION_STEP = int(os.environ.get("ELECTION_STEP", 2880))
+# Set ANTIDYNASTY=1 to enforce no-family-in-office constraint during election
+_ANTIDYNASTY = os.environ.get("ANTIDYNASTY", "0") == "1"
+# Interval constants
+_MONTH = 720   # steps per sim-month (1hr/step)
+_WEEK  = 168   # steps per sim-week
+_CORRUPTION_INTERVAL = int(os.environ.get("CORRUPTION_INTERVAL", 48))  # ~2 sim-days
 # Output directory for corruption logs and CSV exports
 _BARANGAY_OUTPUT = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "../../../output/barangay"))
@@ -65,14 +87,17 @@ class ReverieServer:
     # reverie/meta/json's fork variable. 
     self.sim_code = sim_code
     sim_folder = f"{fs_storage}/{self.sim_code}"
-    copyanything(fork_folder, sim_folder)
+    resuming = os.path.exists(sim_folder)
+    if not resuming:
+      copyanything(fork_folder, sim_folder)
 
-    with open(f"{sim_folder}/reverie/meta.json") as json_file:  
+    with open(f"{sim_folder}/reverie/meta.json") as json_file:
       reverie_meta = json.load(json_file)
 
-    with open(f"{sim_folder}/reverie/meta.json", "w") as outfile: 
-      reverie_meta["fork_sim_code"] = fork_sim_code
-      outfile.write(json.dumps(reverie_meta, indent=2))
+    if not resuming:
+      with open(f"{sim_folder}/reverie/meta.json", "w") as outfile:
+        reverie_meta["fork_sim_code"] = fork_sim_code
+        outfile.write(json.dumps(reverie_meta, indent=2))
 
     # LOADING REVERIE'S GLOBAL VARIABLES
     # The start datetime of the Reverie: 
@@ -143,7 +168,10 @@ class ReverieServer:
                                               .get_curr_event_and_desc())
 
     # BARANGAY: Load agent rows for corruption tracking and inject dynasty bonds.
+    # barangay_agent_rows: dict {name: row} used by log_corruption_step
+    # barangay_agent_list: list of rows used by election/news functions
     self.barangay_agent_rows = load_agent_rows(_BARANGAY_CSV)
+    self.barangay_agent_list = list(self.barangay_agent_rows.values())
     if self.barangay_agent_rows:
       inject_dynasty_memories(self.personas, _BARANGAY_CSV)
 
@@ -151,6 +179,13 @@ class ReverieServer:
     # <server_sleep> denotes the amount of time that our while loop rests each
     # cycle; this is to not kill our machine.
     self.server_sleep = 0.1
+    # {name -> position_key} — populated by monthly/weekly polls, used at election
+    self._declared_candidates = {}
+    # latest world state metrics for news broadcasts
+    self._world_metrics = {}
+    # persistent corruption accrued from active corruption events; added on top
+    # of the trait-based baseline so the 10-step recompute can't erase it.
+    self._corruption_event_bonus = 0.0
 
     # SIGNALING THE FRONTEND SERVER: 
     # curr_sim_code.json contains the current simulation code, and
@@ -368,9 +403,13 @@ class ReverieServer:
             # <curr_tile> is the tile that the persona was at previously. 
             curr_tile = self.personas_tile[persona_name]
             # <new_tile> is the tile that the persona will move to right now,
-            # during this cycle. 
-            new_tile = (new_env[persona_name]["x"], 
-                        new_env[persona_name]["y"])
+            # during this cycle. Fall back to current tile for agents that
+            # timed out and weren't included in the environment file.
+            if persona_name in new_env:
+              new_tile = (new_env[persona_name]["x"],
+                          new_env[persona_name]["y"])
+            else:
+              new_tile = curr_tile
 
             # We actually move the persona on the backend tile map here. 
             self.personas_tile[persona_name] = new_tile
@@ -402,16 +441,41 @@ class ReverieServer:
 
           def _run_persona_move(item):
             persona_name, persona = item
+            set_persona_tier(getattr(persona.scratch, 'agent_tier', 2))
             next_tile, pronunciatio, description, path = persona.move(
               self.maze, self.personas, self.personas_tile[persona_name],
               self.curr_time)
             return persona_name, persona, next_tile, pronunciatio, description, path
 
-          with ThreadPoolExecutor(max_workers=len(self.personas)) as executor:
-            results = list(executor.map(_run_persona_move,
-                                        self.personas.items()))
+          _step_start = time.time()
+          results = []
+          _executor = ThreadPoolExecutor(
+              max_workers=int(os.environ.get("MOVE_MAX_WORKERS", 150)))
+          fut_map = {_executor.submit(_run_persona_move, item): item[0]
+                     for item in self.personas.items()}
+          deadline = time.time() + 3600
+          pending = set(fut_map.keys())
+          while pending and time.time() < deadline:
+            remaining = deadline - time.time()
+            done_batch, pending = wait(
+              pending, timeout=min(10.0, remaining),
+              return_when=FIRST_COMPLETED)
+            for fut in done_batch:
+              name = fut_map[fut]
+              try:
+                results.append(fut.result())
+              except Exception as e:
+                print(f"[SKIP] {name}: {e}", flush=True)
+          for fut in pending:
+            name = fut_map[fut]
+            print(f"[SKIP] {name} timed out after 3600s", flush=True)
+          _executor.shutdown(wait=False)
+          elapsed = time.time() - _step_start
+          print(f"[STEP {self.step} DONE] elapsed={elapsed:.1f}s agents={len(results)}/{len(self.personas)} wall-time={datetime.datetime.now().strftime('%H:%M:%S')}", flush=True)
 
           for persona_name, persona, next_tile, pronunciatio, description, path in results:
+            if next_tile is None or path is None:
+              continue
             movements["persona"][persona_name] = {}
             movements["persona"][persona_name]["movement"] = next_tile
             movements["persona"][persona_name]["path"] = [list(t) for t in path]
@@ -449,14 +513,117 @@ class ReverieServer:
           ])
           _step_log_file.flush()
 
-          # BARANGAY: log corruption metric every 10 steps (≈ 100 in-game sec)
+          # BARANGAY: log corruption metric every 10 steps; keep latest for news broadcasts.
+          # Returns {corruption_index, welfare_score, unrest, dynasty_bonus}; the trait
+          # baseline is combined with the persistent event bonus so witnessed corruption
+          # accumulates instead of being recomputed away.
           if self.step % 10 == 0 and self.barangay_agent_rows:
-            log_corruption_step(self.personas, self.barangay_agent_rows,
-                                self.step, self.curr_time, _BARANGAY_OUTPUT)
+            self._world_metrics = log_corruption_step(
+                self.personas, self.barangay_agent_rows,
+                self.step, self.curr_time, _BARANGAY_OUTPUT,
+                event_bonus=self._corruption_event_bonus)
 
           int_counter -= 1
-          
-      # Sleep so we don't burn our machines. 
+
+          # Autosave every 24 steps (one sim-day) to survive VM reboots.
+          if self.step % 24 == 0:
+            self.save()
+
+          # Weekly news broadcast — one LLM call, injected into media-connected agents.
+          # Information spreads to others organically through conversations.
+          if self.step > 0 and self.step % _WEEK == 0 and self.barangay_agent_rows:
+            world_metrics = getattr(self, "_world_metrics", {})
+            # Add election context note when election is approaching
+            context_notes = ""
+            steps_to_election = _ELECTION_STEP - self.step
+            if 0 < steps_to_election <= _MONTH:
+              election_date = (self.curr_time +
+                               datetime.timedelta(hours=steps_to_election)
+                              ).strftime("%B %d, %Y")
+              context_notes = (f"The local government election is coming on "
+                               f"{election_date}.")
+            broadcast_news(self.personas, self.barangay_agent_list,
+                           world_metrics, self.curr_time, context_notes)
+
+          # Active corruption events — greedy officials may act corruptly; the
+          # population hears about it (memory -> election), and it raises the
+          # world corruption index that the news bulletin reflects.
+          if (self.step > 0 and self.step % _CORRUPTION_INTERVAL == 0
+              and self.barangay_agent_rows):
+            try:
+              _n, _exp, _d = step_corruption_events(
+                  self.personas, self.barangay_agent_list, self.curr_time)
+              if _d:
+                # Accumulate persistently (capped) so the next 10-step recompute
+                # folds it into the baseline rather than discarding it.
+                self._corruption_event_bonus = min(
+                    0.5, self._corruption_event_bonus + _d)
+                _cur = self._world_metrics.get("corruption_index", 0.5)
+                self._world_metrics["corruption_index"] = min(1.0, _cur + _d)
+            except Exception as _e:
+              print(f"[CORRUPTION] tick failed: {_e}", flush=True)
+
+          # ── Election timeline ──────────────────────────────────────────────
+          if self.barangay_agent_rows:
+            _eday = _ELECTION_STEP
+            _announce = _eday - _MONTH       # 1 month before
+            _final_cand = _eday - 72         # 3 days before (lock-in)
+
+            # Pre-announcement: monthly intention polls
+            # Fires every _MONTH steps before the announcement.
+            if (0 < self.step < _announce and self.step % _MONTH == 0):
+              print(f"[ELECTION] Monthly political intention poll at step {self.step}")
+              self._declared_candidates = poll_political_intentions(
+                  self.personas, self._declared_candidates,
+                  self.barangay_agent_list, self.curr_time,
+                  announced=False)
+
+            # Announcement: 1 month before election
+            elif self.step == _announce:
+              _election_date_str = (
+                  self.curr_time + datetime.timedelta(hours=_MONTH)
+              ).strftime("%B %d, %Y")
+              announce_election(self.personas, self.barangay_agent_list,
+                                _election_date_str, self.curr_time)
+              # Also poll immediately after announcement
+              self._declared_candidates = poll_political_intentions(
+                  self.personas, self._declared_candidates,
+                  self.barangay_agent_list, self.curr_time,
+                  announced=True, election_date_str=_election_date_str)
+
+            # Post-announcement: weekly re-checks until lock-in
+            elif (_announce < self.step < _final_cand and
+                  (self.step - _announce) % _WEEK == 0):
+              _election_date_str = (
+                  self.curr_time + datetime.timedelta(
+                      hours=_eday - self.step)
+              ).strftime("%B %d, %Y")
+              print(f"[ELECTION] Weekly candidacy check at step {self.step}")
+              self._declared_candidates = poll_political_intentions(
+                  self.personas, self._declared_candidates,
+                  self.barangay_agent_list, self.curr_time,
+                  announced=True, election_date_str=_election_date_str)
+
+            # Lock-in: finalize candidate list 3 days before election
+            elif self.step == _final_cand:
+              print(f"[ELECTION] Finalizing candidates at step {self.step}")
+              self._election_candidates = finalize_candidacy(
+                  self._declared_candidates)
+
+            # Election day
+            elif self.step == _eday:
+              print(f"[ELECTION] Voting at step {self.step} "
+                    f"(antidynasty={_ANTIDYNASTY})")
+              winners = run_election(
+                  self.personas, self.barangay_agent_list,
+                  antidynasty=_ANTIDYNASTY,
+                  curr_time=self.curr_time,
+                  candidates=getattr(self, "_election_candidates", None),
+              )
+              print(f"[ELECTION] Winners: {winners}")
+              self.save()
+
+      # Sleep so we don't burn our machines.
       time.sleep(self.server_sleep)
 
 

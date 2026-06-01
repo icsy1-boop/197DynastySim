@@ -64,7 +64,10 @@ def cos_sim(a, b):
     a = [0.3, 0.2, 0.5]
     b = [0.2, 0.2, 0.5]
   """
-  return dot(a, b)/(norm(a)*norm(b))
+  if len(a) != len(b):
+    return 0.0
+  n = norm(a) * norm(b)
+  return float(dot(a, b) / n) if n > 0 else 0.0
 
 
 def normalize_dict_floats(d, target_min, target_max):

@@ -1,0 +1,298 @@
+{
+  "world_name": "Barangay Mabuhay",
+  "maze_name": "barangay_mabuhay",
+  "spatial_tree": {
+    "Barangay Mabuhay": {
+      "Barangay Hall": {
+        "Captain's Desk": [
+          "Captain's Desk"
+        ],
+        "Meeting Room": [
+          "Chair",
+          "Table"
+        ],
+        "Records Office": [],
+        "Treasurer's Office": [
+          "Chair"
+        ],
+        "Waiting Area": [
+          "Chair",
+          "Table"
+        ]
+      },
+      "Construction Site": {
+        "Cement Mixing Area": [
+          "Cement Mixer",
+          "Gate"
+        ],
+        "Inspection Zone": [
+          "Scaffolding"
+        ],
+        "Scaffolding": [
+          "Cement Mixer",
+          "Scaffolding"
+        ],
+        "Storage Shed": [
+          "Gate",
+          "Materials Storage Shed"
+        ]
+      },
+      "Factory Zone": {
+        "Assembly Line": [
+          "Assembly Machine"
+        ],
+        "Loading Dock": [
+          "Gate"
+        ],
+        "Storage Warehouse": [
+          "Tool Cabinet"
+        ],
+        "Supervisorâ€™s Office": [
+          "Safety Gear Rack",
+          "Supervisor's Desk"
+        ]
+      },
+      "Health Center": {
+        "Consultation Room": [
+          "Bed"
+        ],
+        "Pharmacy": [
+          "Chair",
+          "Nurse's Station",
+          "Waiting Bench"
+        ],
+        "Treatment Room": [
+          "Bed",
+          "Examination Table",
+          "Medicine Cabinet"
+        ]
+      },
+      "Market": {
+        "Central Market": [
+          "Chair",
+          "Ice Chest"
+        ],
+        "Dry Goods Stall": [
+          "Chair",
+          "Market Stall Counter"
+        ],
+        "Fish Stall": [
+          "Chair",
+          "Ice Chest",
+          "Market Stall Counter"
+        ],
+        "Meat Stall": [
+          "Chair",
+          "Market Stall Counter"
+        ],
+        "Vegetable Stall": [
+          "Chair",
+          "Market Stall Counter"
+        ]
+      },
+      "Media CSO Node": {
+        "Broadcast Studio": [
+          "Camera/Recording Equipment",
+          "Chair",
+          "Computer/Monitor"
+        ],
+        "CSO Meeting Hall": [
+          "Chair",
+          "Table"
+        ],
+        "Editing Room": [
+          "Chair",
+          "Computer/Monitor",
+          "Document Filing Cabinet",
+          "Table"
+        ],
+        "Office Cubicles": [
+          "Chair",
+          "Computer/Monitor",
+          "Table"
+        ]
+      },
+      "Municipal Hall": {
+        "Council Chamber": [
+          "Chair",
+          "Council Table"
+        ],
+        "Lobby": [
+          "Chair",
+          "Transaction Window"
+        ],
+        "Mayor's Office": [
+          "Chair",
+          "Mayor's Desk"
+        ],
+        "Planning Room": [
+          "Chair",
+          "Table"
+        ],
+        "Procurement Office": [
+          "Chair",
+          "Filing Cabinet",
+          "Table"
+        ],
+        "Records Room": [
+          "Filing Cabinet"
+        ],
+        "Treasury": [
+          "Chair",
+          "Table"
+        ]
+      },
+      "Police Station": {
+        "Chief's Office": [
+          "Chair",
+          "Radio/Comm Device"
+        ],
+        "Evidence Room": [
+          "Evidence Box"
+        ],
+        "Holding Cell": [
+          "Holding Cell",
+          "Table"
+        ],
+        "Reception Desk": [
+          "Chair",
+          "Front Desk/Blotter",
+          "Radio/Comm Device",
+          "Table"
+        ]
+      },
+      "Residential A": {
+        "Garage": [],
+        "Garden": [
+          "Garden"
+        ],
+        "Mansion Interior": [
+          "Bed",
+          "Chair",
+          "Dining Table"
+        ]
+      },
+      "Residential B": {
+        "Backyard": [
+          "Backyard"
+        ],
+        "House Interior": [
+          "Bed",
+          "Chair",
+          "Table"
+        ]
+      },
+      "Residential C": {
+        "Shanty Interior": [
+          "Bed",
+          "Gate"
+        ]
+      },
+      "Road Network": {
+        "Bridge": [],
+        "Central Plaza": [],
+        "Normal Road": []
+      },
+      "School": {
+        "Classroom": [
+          "Chair",
+          "PTA Meeting Table",
+          "Student Desk"
+        ],
+        "Library": [
+          "Bookshelf",
+          "Chair",
+          "Table"
+        ],
+        "Playground": [
+          "Chair",
+          "Playground Equipment",
+          "Table"
+        ]
+      }
+    }
+  },
+  "sector_spawn": {
+    "Barangay Hall": [
+      165,
+      74
+    ],
+    "Construction Site": [
+      214,
+      25
+    ],
+    "Factory Zone": [
+      157,
+      21
+    ],
+    "Health Center": [
+      201,
+      81
+    ],
+    "Market": [
+      143,
+      134
+    ],
+    "Media CSO Node": [
+      179,
+      133
+    ],
+    "Municipal Hall": [
+      188,
+      167
+    ],
+    "Police Station": [
+      229,
+      130
+    ],
+    "Residential A": [
+      311,
+      122
+    ],
+    "Residential B": [
+      189,
+      224
+    ],
+    "Residential C": [
+      29,
+      162
+    ],
+    "Road Network": [
+      34,
+      151
+    ],
+    "School": [
+      136,
+      77
+    ]
+  },
+  "zone_map": {
+    "resA": "Residential A:Mansion Interior",
+    "resB": "Residential B:House Interior",
+    "resC": "Residential C:Shanty Interior",
+    "school": "School:Classroom",
+    "residential_area": "Residential B:House Interior",
+    "residential_homes": "Residential B:House Interior",
+    "market": "Market:Central Market",
+    "business_district": "Market:Central Market",
+    "neighborhood_store": "Market:Dry Goods Stall",
+    "construction_site": "Construction Site:Cement Mixing Area",
+    "construction_office": "Construction Site:Storage Shed",
+    "office": "Municipal Hall:Records Room",
+    "municipal_hall": "Municipal Hall:Lobby",
+    "city_hall": "Municipal Hall:Lobby",
+    "court_office": "Municipal Hall:Records Room",
+    "audit_office": "Municipal Hall:Records Room",
+    "engineering_office": "Municipal Hall:Planning Room",
+    "disaster_risk_office": "Municipal Hall:Planning Room",
+    "barangay_hall": "Barangay Hall:Waiting Area",
+    "social_welfare_office": "Barangay Hall:Meeting Room",
+    "community_office": "Media CSO Node:CSO Meeting Hall",
+    "media_office": "Media CSO Node:Broadcast Studio",
+    "factory": "Factory Zone:Assembly Line",
+    "police_station": "Police Station:Reception Desk",
+    "clinic": "Health Center:Consultation Room",
+    "health_center": "Health Center:Consultation Room",
+    "field_service": "Road Network:Central Plaza"
+  }
+}
