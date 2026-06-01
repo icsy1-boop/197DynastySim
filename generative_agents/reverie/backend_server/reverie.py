@@ -50,6 +50,7 @@ from barangay_election import (run_election, poll_political_intentions,
 from barangay_news import broadcast_news
 from barangay_corruption_events import step_corruption_events
 from barangay_unrest import step_unrest
+from barangay_survey import conduct_survey
 
 # Path to the barangay agents CSV that this sim was bootstrapped from. MUST match
 # the running population or corruption/election/news see the wrong agents. Set via
@@ -61,9 +62,10 @@ _BARANGAY_CSV = os.environ.get("BARANGAY_CSV") or os.path.abspath(
 _ELECTION_STEP = int(os.environ.get("ELECTION_STEP", 2880))
 # Set ANTIDYNASTY=1 to enforce no-family-in-office constraint during election
 _ANTIDYNASTY = os.environ.get("ANTIDYNASTY", "0") == "1"
-# Interval constants
-_MONTH = 720   # steps per sim-month (1hr/step)
-_WEEK  = 168   # steps per sim-week
+# Interval constants (env-overridable so the election campaign can be compressed
+# for short test runs, e.g. ELECTION_MONTH=168 ELECTION_WEEK=48 ELECTION_STEP=336).
+_MONTH = int(os.environ.get("ELECTION_MONTH", 720))   # announce lead / poll cadence
+_WEEK  = int(os.environ.get("ELECTION_WEEK", 168))    # weekly cadence (news/candidacy/survey)
 _CORRUPTION_INTERVAL = int(os.environ.get("CORRUPTION_INTERVAL", 48))  # ~2 sim-days
 _PROTEST_INTERVAL = int(os.environ.get("PROTEST_INTERVAL", 72))        # ~3 sim-days
 # Output directory for corruption logs and CSV exports
@@ -650,6 +652,24 @@ class ReverieServer:
               )
               print(f"[ELECTION] Winners: {winners}")
               self.save()
+
+            # Journalist election survey — weekly opinion poll from the
+            # announcement up to election day (once >=2 candidates exist for a
+            # headline race). Journalists interview a sample of residents; the
+            # published poll is injected as memories + news, informing voters and
+            # enabling bandwagon/strategic shifts in the real vote.
+            if (_announce < self.step < _eday and
+                (self.step - _announce) % _WEEK == 0):
+              try:
+                _stext = conduct_survey(
+                    self.personas, self.barangay_agent_list,
+                    self._declared_candidates, self.curr_time)
+                if _stext:
+                  _ev = self._world_metrics.setdefault("recent_events", [])
+                  _ev.append(_stext)
+                  self._world_metrics["recent_events"] = _ev[-3:]
+              except Exception as _e:
+                print(f"[SURVEY] tick failed: {_e}", flush=True)
 
       # Sleep so we don't burn our machines.
       time.sleep(self.server_sleep)
