@@ -13,6 +13,12 @@ import httpx
 from openai import OpenAI
 from utils import qwen_endpoint, qwen_model, embedding_endpoint, embedding_model
 
+# Compatibility: run_gpt_prompt.py (from the sidex15 merge) references
+# `openai_api_model` in its gpt_param "engine" fields. Our GPT_request routes via
+# _get_client_and_model() and ignores gpt_param["engine"], so this only needs to
+# be a defined name; alias it to the Tier-2 model. Re-exported via `import *`.
+openai_api_model = qwen_model
+
 # Set QWEN_THINKING=1 to re-enable chain-of-thought (slower, higher quality).
 _THINKING = os.environ.get("QWEN_THINKING", "0") == "1"
 _NO_THINK = {} if _THINKING else {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}
