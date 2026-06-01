@@ -1,7 +1,9 @@
-{% load staticfiles %}
+{% load static %}
 
 <div id="step" style="display:none">{{step}}</div>
 <div id="sim_code" style="display:none">{{sim_code}}</div>
+<div id="sec_per_step" style="display:none">{{sec_per_step|default:10}}</div>
+<div id="mode" style="display:none">{{mode}}</div>
 <div id="persona_name_list" style="display:none">{{persona_name_str}}</div>
 <div id="persona_init_pos" style="display:none">
 	{% for i in persona_init_pos %}
@@ -31,6 +33,8 @@
 	// a step. We use this to link the steps in the backend. 
 	let step = parseInt(document.getElementById('step').innerHTML);
 	let sim_code = document.getElementById('sim_code').innerHTML;
+	let sec_per_step = parseInt(document.getElementById('sec_per_step').innerHTML) || 10;
+	let sim_mode = document.getElementById('mode').innerHTML.trim(); // "simulate" | "replay"
 	// let persona_names = document.getElementById('persona_name_list').innerHTML.split(",");
 
 	let spans = document.getElementById('persona_init_pos').getElementsByTagName('span');
@@ -81,8 +85,17 @@
 	let player;
 	let showDebug = false;
 
-	// Persona related variables. This should have the name of the persona as its 
+	// Persona related variables. This should have the name of the persona as its
 	// keys, and the instances of the Persona class as the values.
+	// persona_name -> true while a tween chain is running for that persona
+	let persona_animating = {};
+	// Tracks the last known tile [x, y] for each persona in JS (used in replay
+	// to animate from current position to next step destination without snapping).
+	let persona_tile_pos = {};
+	// persona_name -> true once the first tween has fired (so we know the sprite
+	// has been snapped to path[0] at least once and persona_tile_pos is accurate).
+	let persona_initialized = {};
+
 	var spawn_tile_loc = {};
 	// for (var i = 0; i < persona_names.length; i++) { 
 	// 	spawn_tile_loc[persona_names[i]] = [0, 0]
@@ -90,6 +103,7 @@
 
 	for (var key in persona_names){
 		spawn_tile_loc[key] = persona_names[key] ;
+		persona_tile_pos[key] = [persona_names[key][0], persona_names[key][1]];
 	}
 	console.log(spawn_tile_loc);
 
@@ -103,14 +117,15 @@
 
 	// <tile_width> is the width of one individual tile (tiles are square)
 	let tile_width = 32;
-	// Important: tile_width % movement_speed has to be 0.
-	// <movement_speed> determines how fast we move at each upate cycle. 32 = a
-	// full tile per frame (instant jump, no visible walk); 8 = glide over 4
-	// frames so agents actually animate between tiles.
-	let movement_speed = 6;
 
-	// <timer_max> determines how frequently our update function will query the 
-	// frontend server. If it's higher, we wait longer cycles. 
+	// <ms_per_tile> controls how long (wall-clock) each tile hop takes during
+	// the tween animation. Lower = faster playback. At 1 hr/step a persona may
+	// traverse many tiles; 100 ms/tile keeps the walk readable without being
+	// too slow for long paths.
+	let ms_per_tile = 100;
+
+	// <timer_max> determines how frequently our update function will query the
+	// frontend server. If it's higher, we wait longer cycles.
 	let timer_max = 0;
 	let timer = timer_max;
 	// Guard: only ever one update_environment request in flight. Without this the
@@ -123,11 +138,10 @@
 	let phase = "update"; // or "update" or "execute"
 
 	// Variables for storing movements that are sent from the backend server.
+	// init_movement pre-loads the current step so execute_movement is never
+	// undefined on first/late load.
 	let execute_movement = {{ init_movement|safe }};
-	let execute_count_max = tile_width/movement_speed;
-	let execute_count = execute_count_max;
-	let movement_target = {};
-	
+
 
 	// ###########################################################################
 	// ENGINE
@@ -417,107 +431,157 @@
 	    timer = timer - 1;
 	  } 
 
-	  else { 
-	    // This is where we actually move the personas in the visual world. Each
-	    // backend computation in execute_movement moves each persona by one tile
-	    // (or some personas might not move if they choose not to). 
-	    // The execute_count_max is computed by tile_width/movement_speed, which
-	    // defines a one step sequence in this world. 
-    document.getElementById("game-time-content").innerHTML = execute_movement["meta"]["curr_time"];
+	  else {
+	    // Execute phase: animate all personas along their waypoint paths using
+	    // Phaser tween chains, then advance to the next step once every persona
+	    // has finished moving.
+	    document.getElementById("game-time-content").innerHTML = execute_movement["meta"]["curr_time"];
 
-    // On the first frame of a new step (execute_count re-armed to execute_count_max)
-    // we latch each persona's destination tile and fill the action/chat panels.
-    // Then we glide every sprite ALL THE WAY to its tile and only advance to the
-    // next step once everyone has arrived. At 1 sim-hour/step a persona's whole
-    // walk collapses into one backend step, so without full-distance gliding the
-    // sprite would hop one tile and snap the rest -- the "teleport" look. Gliding
-    // plus a small movement_speed keeps it smooth and watchable.
-    if (execute_count == execute_count_max) {
-      for (let i=0; i<Object.keys(personas).length; i++) {
-        let curr_persona_name = Object.keys(personas)[i];
-        let curr_persona = personas[curr_persona_name];
-        if (!(curr_persona_name in movement_target)) {
-          movement_target[curr_persona_name] = [curr_persona.body.x, curr_persona.body.y];
-        }
-        if (!execute_movement["persona"][curr_persona_name]) continue;
-        let curr_x = execute_movement["persona"][curr_persona_name]["movement"][0];
-        let curr_y = execute_movement["persona"][curr_persona_name]["movement"][1];
-        movement_target[curr_persona_name] = [curr_x * tile_width, curr_y * tile_width];
+	    // Update action-description panel and pronunciatio labels immediately.
+	    for (let i = 0; i < Object.keys(personas).length; i++) {
+	      let curr_persona_name = Object.keys(personas)[i];
+	      let curr_persona_name_os = curr_persona_name.replace(/ /g, "_");
+	      let persona_data = execute_movement["persona"][curr_persona_name];
 
-        let pronunciatio_content = execute_movement["persona"][curr_persona_name]["pronunciatio"];
-        let rgx = new RegExp(/(\p{L}{1})\p{L}+/, 'gu');
-        let initials = [...curr_persona_name.matchAll(rgx)] || [];
-        initials = ((initials.shift()?.[1] || '') + (initials.pop()?.[1] || '')).toUpperCase();
-        pronunciatios[curr_persona_name].setText(initials + ": " + pronunciatio_content);
+	      let pronunciatio_content = persona_data["pronunciatio"];
+	      let rgx = new RegExp(/(\p{L}{1})\p{L}+/, 'gu');
+	      let initials = [...curr_persona_name.matchAll(rgx)] || [];
+	      initials = (
+	        (initials.shift()?.[1] || '') + (initials.pop()?.[1] || '')
+	      ).toUpperCase();
+	      pronunciatios[curr_persona_name].setText(initials + ": " + pronunciatio_content);
 
-        let curr_persona_name_os = curr_persona_name.replace(/ /g,"_");
-        let description_content = execute_movement["persona"][curr_persona_name]["description"];
-        let chat_content = "";
-        if (execute_movement["persona"][curr_persona_name]["chat"] != null) {
-          for (let j=0; j<execute_movement["persona"][curr_persona_name]["chat"].length; j++) {
-            chat_content += execute_movement["persona"][curr_persona_name]["chat"][j][0] + ": " + execute_movement["persona"][curr_persona_name]["chat"][j][1] + "<br>";
-          }
-        } else {
-          chat_content = "<em>None at the moment</em>";
-        }
-        document.getElementById("current_action__"+curr_persona_name_os).innerHTML = description_content.split("@")[0];
-        document.getElementById("target_address__"+curr_persona_name_os).innerHTML = description_content.split("@")[1];
-        document.getElementById("chat__"+curr_persona_name_os).innerHTML = chat_content;
-      }
-      execute_count = 1;  // leave the "first frame" state; now glide until arrival
-    }
+	      let description_content = persona_data["description"];
+	      let chat_content = "";
+	      if (persona_data["chat"] != null) {
+	        for (let j = 0; j < persona_data["chat"].length; j++) {
+	          chat_content += persona_data["chat"][j][0] + ": " + persona_data["chat"][j][1] + "<br>";
+	        }
+	      } else {
+	        chat_content = "<em>None at the moment</em>";
+	      }
+	      document.getElementById("current_action__" + curr_persona_name_os).innerHTML = description_content.split("@")[0];
+	      document.getElementById("target_address__" + curr_persona_name_os).innerHTML = description_content.split("@")[1];
+	      document.getElementById("chat__" + curr_persona_name_os).innerHTML = chat_content;
+	    }
 
-    // Glide every persona toward its latched target, one axis per frame, clamped
-    // so we land exactly on the tile (no overshoot). Track if anyone still moves.
-    let any_moving = false;
-    for (let i=0; i<Object.keys(personas).length; i++) {
-      let curr_persona_name = Object.keys(personas)[i];
-      let curr_persona = personas[curr_persona_name];
-      let curr_pronunciatio = pronunciatios[curr_persona_name];
-      if (!(curr_persona_name in movement_target)) {
-        movement_target[curr_persona_name] = [curr_persona.body.x, curr_persona.body.y];
-      }
-      let tx = movement_target[curr_persona_name][0];
-      let ty = movement_target[curr_persona_name][1];
-      let anims_direction = "";
+	    let all_persona_names = Object.keys(personas);
 
-      if (curr_persona.body.x < tx) {
-        curr_persona.body.x = Math.min(curr_persona.body.x + movement_speed, tx);
-        anims_direction = "r"; pre_anims_direction_dict[curr_persona_name] = "r"; any_moving = true;
-      } else if (curr_persona.body.x > tx) {
-        curr_persona.body.x = Math.max(curr_persona.body.x - movement_speed, tx);
-        anims_direction = "l"; pre_anims_direction_dict[curr_persona_name] = "l"; any_moving = true;
-      } else if (curr_persona.body.y < ty) {
-        curr_persona.body.y = Math.min(curr_persona.body.y + movement_speed, ty);
-        anims_direction = "d"; pre_anims_direction_dict[curr_persona_name] = "d"; any_moving = true;
-      } else if (curr_persona.body.y > ty) {
-        curr_persona.body.y = Math.max(curr_persona.body.y - movement_speed, ty);
-        anims_direction = "u"; pre_anims_direction_dict[curr_persona_name] = "u"; any_moving = true;
-      }
+	    if (sim_mode === "simulate" && sec_per_step >= 3600) {
+	      // ---- SIMULATE MODE (large step size): TELEPORT ----
+	      // No animation — snap every persona to their destination tile and
+	      // update the tracked tile position so replay stays consistent.
+	      all_persona_names.forEach(curr_persona_name => {
+	        let curr_persona = personas[curr_persona_name];
+	        let curr_pronunciatio = pronunciatios[curr_persona_name];
+	        let persona_data = execute_movement["persona"][curr_persona_name];
+	        let dest = persona_data["movement"];
 
-      curr_pronunciatio.x = curr_persona.body.x - 6;
-      curr_pronunciatio.y = curr_persona.body.y - 42 - 32;
+	        curr_persona.setPosition(dest[0] * tile_width, dest[1] * tile_width);
+	        curr_pronunciatio.x = curr_persona.x - 6;
+	        curr_pronunciatio.y = curr_persona.y - 42 - 32;
+	        curr_persona.anims.stop();
+	        persona_tile_pos[curr_persona_name] = [dest[0], dest[1]];
+	      });
+	      phase = "process";
+	      step = step + 1;
 
-      if (anims_direction == "l") { curr_persona.anims.play("misa-left-walk", true); }
-      else if (anims_direction == "r") { curr_persona.anims.play("misa-right-walk", true); }
-      else if (anims_direction == "u") { curr_persona.anims.play("misa-back-walk", true); }
-      else if (anims_direction == "d") { curr_persona.anims.play("misa-front-walk", true); }
-      else {
-        curr_persona.anims.stop();
-        if (pre_anims_direction_dict[curr_persona_name] == "l") curr_persona.setTexture("atlas", "misa-left"); else
-        if (pre_anims_direction_dict[curr_persona_name] == "r") curr_persona.setTexture("atlas", "misa-right"); else
-        if (pre_anims_direction_dict[curr_persona_name] == "u") curr_persona.setTexture("atlas", "misa-back"); else
-        if (pre_anims_direction_dict[curr_persona_name] == "d") curr_persona.setTexture("atlas", "misa-front");
-      }
-    }
+	    } else {
+	      // ---- REPLAY / SMALL-STEP MODE: ANIMATE CURRENT→DESTINATION ----
+	      // For each persona, animate from their current tracked tile position
+	      // to the destination tile in the movement data.  We build a waypoint
+	      // list starting with the persona's current pixel position (already
+	      // on-screen, no snap needed) and appending the path tiles from the
+	      // movement JSON.  This means there is never a visual jump between
+	      // steps: the tween picks up exactly where the previous one left off.
+	      let scene = this;
+	      // If ANY persona is still animating, wait — don't start the next step
+	      // for anyone. This prevents fast-finishing personas from jumping ahead
+	      // to the next step's data while slow ones are still mid-tween.
+	      if (all_persona_names.some(n => persona_animating[n])) return;
 
-    // Everyone reached their tile -> hand back to the (view-only) process phase,
-    // which polls the next step's movement file.
-    if (!any_moving) {
-      phase = "process";
-      step = step + 1;
-      execute_count = execute_count_max;  // re-arm "first frame" for the next step
-    }
+	      let total = all_persona_names.length;
+	      let finished_count = 0;
+
+	      all_persona_names.forEach(curr_persona_name => {
+	        let curr_persona = personas[curr_persona_name];
+	        let curr_pronunciatio = pronunciatios[curr_persona_name];
+	        let persona_data = execute_movement["persona"][curr_persona_name];
+	        let dest = persona_data["movement"]; // final destination tile [x, y]
+
+	        // Build the waypoint list.
+	        // path[0] from the backend is typically 1 tile away from the sprite's
+	        // current position (the backend re-plans from a slightly different start
+	        // each step). To avoid any snap, we tween from the sprite's current pixel
+	        // position directly to dest, using the backend path only for direction
+	        // guidance on intermediate tiles. We reconstruct the tween list as:
+	        //   [current_sprite_tile, ...path_tiles, dest]
+	        // but since path already ends at dest, we just use path_tiles and let
+	        // the first tween naturally walk the 1-tile gap from current pos.
+	        let path_tiles = (persona_data["path"] && persona_data["path"].length > 0)
+	          ? persona_data["path"]
+	          : [dest];
+
+	        persona_animating[curr_persona_name] = true;
+
+	        let tween_configs = path_tiles.map(([tx, ty]) => {
+	          let target_x = tx * tile_width;
+	          let target_y = ty * tile_width;
+	          return {
+	            targets: curr_persona,
+	            x: target_x,
+	            y: target_y,
+	            duration: ms_per_tile,
+	            ease: 'Linear',
+	            onUpdate: () => {
+	              let dx = target_x - curr_persona.x;
+	              let dy = target_y - curr_persona.y;
+	              let dir = "";
+	              if (Math.abs(dx) > Math.abs(dy)) {
+	                dir = dx > 0 ? "r" : "l";
+	              } else if (dy !== 0) {
+	                dir = dy > 0 ? "d" : "u";
+	              }
+	              if (dir === "l") curr_persona.anims.play("misa-left-walk", true);
+	              else if (dir === "r") curr_persona.anims.play("misa-right-walk", true);
+	              else if (dir === "u") curr_persona.anims.play("misa-back-walk", true);
+	              else if (dir === "d") curr_persona.anims.play("misa-front-walk", true);
+	              if (dir) pre_anims_direction_dict[curr_persona_name] = dir;
+
+	              curr_pronunciatio.x = curr_persona.x - 6;
+	              curr_pronunciatio.y = curr_persona.y - 42 - 32;
+	            }
+	          };
+	        });
+
+	        scene.tweens.chain({
+	          tweens: tween_configs,
+	          onComplete: () => {
+	            // Snap to exact destination pixel to correct any floating-point drift.
+	            curr_persona.setPosition(dest[0] * tile_width, dest[1] * tile_width);
+	            curr_pronunciatio.x = curr_persona.x - 6;
+	            curr_pronunciatio.y = curr_persona.y - 42 - 32;
+
+	            // Update the tracked tile so the next step starts from here.
+	            persona_tile_pos[curr_persona_name] = [dest[0], dest[1]];
+
+	            curr_persona.anims.stop();
+	            let d = pre_anims_direction_dict[curr_persona_name];
+	            if (d === "l") curr_persona.setTexture("atlas", "misa-left");
+	            else if (d === "r") curr_persona.setTexture("atlas", "misa-right");
+	            else if (d === "u") curr_persona.setTexture("atlas", "misa-back");
+	            else if (d === "d") curr_persona.setTexture("atlas", "misa-front");
+
+	            persona_animating[curr_persona_name] = false;
+	            finished_count++;
+	            if (finished_count === total) {
+	              phase = "process";
+	              step = step + 1;
+	            }
+	          }
+	        });
+	      });
+	    }
 	  }
 	}
 

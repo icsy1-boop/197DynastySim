@@ -14,7 +14,7 @@ from django.shortcuts import render, redirect, HttpResponseRedirect
 from django.http import HttpResponse, JsonResponse
 from global_methods import *
 
-from django.contrib.staticfiles.templatetags.staticfiles import static
+from django.templatetags.static import static
 from .models import *
 
 def landing(request): 
@@ -159,11 +159,20 @@ def home(request):
       mv["<step>"] = step
       init_movement = json.dumps(mv)
 
+  # sec_per_step drives the frontend animation mode: at large step sizes
+  # (>= 3600s) the tween engine teleports instead of walking the full path.
+  meta_file = f"storage/{sim_code}/reverie/meta.json"
+  sec_per_step = 10
+  if check_if_file_exists(meta_file):
+    with open(meta_file) as json_file:
+      sec_per_step = json.load(json_file).get("sec_per_step", 10)
+
   context = {"sim_code": sim_code,
              "step": step,
              "persona_names": persona_names,
              "persona_init_pos": persona_init_pos,
              "init_movement": init_movement,
+             "sec_per_step": sec_per_step,
              "mode": "simulate"}
   template = "home/home.html"
   return render(request, template, context)
@@ -202,11 +211,18 @@ def replay(request, sim_code, step):
       mv["<step>"] = step
       init_movement = json.dumps(mv)
 
+  meta_file = f"storage/{sim_code}/reverie/meta.json"
+  sec_per_step = 10
+  if check_if_file_exists(meta_file):
+    with open(meta_file) as json_file:
+      sec_per_step = json.load(json_file).get("sec_per_step", 10)
+
   context = {"sim_code": sim_code,
              "step": step,
              "persona_names": persona_names,
              "persona_init_pos": persona_init_pos,
              "init_movement": init_movement,
+             "sec_per_step": sec_per_step,
              "mode": "replay"}
   template = "home/home.html"
   return render(request, template, context)
