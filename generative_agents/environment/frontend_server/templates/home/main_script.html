@@ -140,13 +140,63 @@
 	// with connections (net::ERR_INSUFFICIENT_RESOURCES).
 	let update_inflight = false;
 
-	// <phase> -- there are three phases: "process," "update," and "execute."
-	let phase = "update"; // or "update" or "execute"
+	// <phase> -- phases: "process," "update," "execute," and "converse."
+	// "converse" is entered after every agent has finished walking for a step;
+	// it plays the step's conversations out one line at a time (MMORPG-style)
+	// before advancing to the next step.
+	let phase = "update";
+
+	// ---- Conversation bubble playback state ----
+	// After the walk for a step finishes we collect every spoken turn across all
+	// agents into <conversation_queue> and reveal them one at a time: the speaker
+	// of each turn shows the line in their bubble for <convo_frames_per_line>
+	// frames (~1s). Only when the queue is drained do we advance the step.
+	let conversation_queue = [];   // [{speaker, text}, ...] for the current step
+	let convo_index = 0;           // index of the turn currently shown
+	let convo_frame_counter = 0;   // frames the current turn has been visible
+	let convo_frames_per_line = 600;// ~1s at 60fps
+	let convo_built = false;       // guard: build the queue once per step
+	// Full (untruncated) bubble text per agent for the line they are currently
+	// "speaking," so hover/click can show the whole utterance.
+	let bubble_full_text = {};
+	// Agents whose bubble is currently pinned to full text (selected/hovered).
+	let bubble_pinned = {};
+	let BUBBLE_TRUNCATE = 100;     // chars shown before truncating with an ellipsis
 
 	// Variables for storing movements that are sent from the backend server.
 	// init_movement pre-loads the current step so execute_movement is never
 	// undefined on first/late load.
 	let execute_movement = {{ init_movement|safe }};
+
+	// Render a line into an agent's bubble. By default the text is truncated for
+	// readability on the map; the full utterance is kept in <bubble_full_text> so
+	// hover/click can expand it. <speaker> is prefixed so it reads like chat.
+	function setBubbleLine(name, speaker, text) {
+		let full = (speaker ? speaker + ": " : "") + text;
+		bubble_full_text[name] = full;
+		let shown = (bubble_pinned[name] || full.length <= BUBBLE_TRUNCATE)
+			? full
+			: full.slice(0, BUBBLE_TRUNCATE - 1) + "…";
+		pronunciatios[name].setText(shown).setVisible(true);
+	}
+
+	// Hide an agent's bubble and clear its remembered line.
+	function clearBubble(name) {
+		bubble_full_text[name] = "";
+		pronunciatios[name].setText("").setVisible(false);
+	}
+
+	// Pin/unpin an agent's bubble to its full (untruncated) line. Used on hover
+	// and click so the whole utterance is readable without leaving the map.
+	function setBubbleFull(name, pinned) {
+		bubble_pinned[name] = pinned;
+		let full = bubble_full_text[name];
+		if (!full) return;                       // nothing being said right now
+		let shown = (pinned || full.length <= BUBBLE_TRUNCATE)
+			? full
+			: full.slice(0, BUBBLE_TRUNCATE - 1) + "…";
+		pronunciatios[name].setText(shown).setVisible(true);
+	}
 
 
 	// ###########################################################################
@@ -340,18 +390,32 @@
 	                         .sprite(start_pos[0], start_pos[1], "atlas", "misa-front")
 	                         .setSize(30, 40)
 	                         .setOffset(0, 32); // DEBUG 1 --- I added 32 offset on Dec 29. 
-	    // Here, we are creating the persona and its pronunciatio sprites.
+	    // Here, we are creating the persona and its speech-bubble sprite.
 	    personas[persona_name] = new_sprite;
+	    // The floating bubble defaults to MMORPG-style behaviour: it shows the
+	    // live conversation between agents and is hidden whenever the agent is
+	    // not chatting. (Emoji output is deprecated; any emoji is routed to the
+	    // agent stats panel instead.) Start hidden — the update loop turns it on
+	    // only while there is active chat.
+	    // <resolution> renders the text bitmap at a multiple of its on-screen size
+	    // so it stays crisp when the camera zooms in. Without this the global
+	    // pixelArt:true setting (needed for the tilemap) upscales the small text
+	    // texture with nearest-neighbour filtering and it looks pixelated/blocky.
 	    let label = this.add.text(
 	                                   new_sprite.body.x - 6,
 	                                   new_sprite.body.y - 42 - 32, // DEBUG 1 --- I added 32 offset on Dec 29.
-	                                   "🦁", {
-	                                   font: "28px monospace",
-	                                   fill: "#000000",
+	                                   "", {
+	                                   fontFamily: "Arial, Helvetica, sans-serif",
+	                                   fontSize: "18px",
+	                                   color: "#000000",
+	                                   resolution: 3 * (window.devicePixelRatio || 1),
 	                                   padding: { x: 8, y: 8},
 	                                   backgroundColor: "#ffffff",
-	                                   border:"solid",
-	                                   borderRadius:"10px"}).setDepth(3);
+	                                   borderRadius:"10px",
+	                                   wordWrap: { width: 240 }}).setDepth(3).setVisible(false);
+	    // Set resolution explicitly too: the constructor style is honoured
+	    // inconsistently across Phaser versions, but setResolution() is reliable.
+	    label.setResolution(3 * (window.devicePixelRatio || 1));
 	    pronunciatios[persona_name] = label;
 
 	    // *** CLICK / HOVER INTERACTIVITY ***
@@ -364,15 +428,25 @@
 	      obj.on("pointerdown", function(pointer, lx, ly, event) {
 	        suppress_drag = true;            // don't start a camera drag
 	        if (event) event.stopPropagation();
+	        // Clicking selects the agent and pins its bubble to the full line so
+	        // it stays expanded while the stats panel is open.
 	        selectPersona(pn);
+	        setBubbleFull(pn, true);
 	      });
 	      obj.on("pointerover", function(pointer) {
 	        showTooltip(pn, pointer.event.clientX, pointer.event.clientY);
+	        setBubbleFull(pn, true);         // expand the bubble on hover
 	      });
 	      obj.on("pointermove", function(pointer) {
 	        showTooltip(pn, pointer.event.clientX, pointer.event.clientY);
 	      });
-	      obj.on("pointerout", function() { hideTooltip(); });
+	      obj.on("pointerout", function() {
+	        hideTooltip();
+	        // Keep the full line only if this agent is the selected one; otherwise
+	        // collapse back to the truncated bubble.
+	        let active = document.getElementById("persona_panel").getAttribute("data-active-persona");
+	        if (active !== pn) setBubbleFull(pn, false);
+	      });
 	    });
 	  }
 
@@ -479,10 +553,10 @@
 	    timer = timer - 1;
 	  } 
 
-	  else {
+	  else if (phase == "execute") {
 	    // Execute phase: animate all personas along their waypoint paths using
-	    // Phaser tween chains, then advance to the next step once every persona
-	    // has finished moving.
+	    // Phaser tween chains, then move to the "converse" phase once every
+	    // persona has finished moving.
 	    document.getElementById("game-time-content").innerHTML = execute_movement["meta"]["curr_time"];
 
 	    // Update action-description panel and pronunciatio labels immediately.
@@ -492,14 +566,11 @@
 	      let persona_data = execute_movement["persona"][curr_persona_name];
 
 	      let pronunciatio_content = persona_data["pronunciatio"];
-	      let rgx = new RegExp(/(\p{L}{1})\p{L}+/, 'gu');
-	      let initials = [...curr_persona_name.matchAll(rgx)] || [];
-	      initials = (
-	        (initials.shift()?.[1] || '') + (initials.pop()?.[1] || '')
-	      ).toUpperCase();
-	      pronunciatios[curr_persona_name].setText(initials + ": " + pronunciatio_content);
-
 	      let description_content = persona_data["description"];
+
+	      // Fill the hidden spans that the stats panel and hover tooltip read.
+	      // The full transcript lives here (with <br>); the floating bubbles do
+	      // NOT show it — bubbles play line-by-line during the "converse" phase.
 	      let chat_content = "";
 	      if (persona_data["chat"] != null) {
 	        for (let j = 0; j < persona_data["chat"].length; j++) {
@@ -508,10 +579,17 @@
 	      } else {
 	        chat_content = "<em>None at the moment</em>";
 	      }
+
 	      document.getElementById("current_action__" + curr_persona_name_os).innerHTML = description_content.split("@")[0];
 	      document.getElementById("target_address__" + curr_persona_name_os).innerHTML = description_content.split("@")[1];
 	      document.getElementById("chat__" + curr_persona_name_os).innerHTML = chat_content;
+	      // Emoji (when an enabled run produced one) is surfaced in the stats panel.
+	      document.getElementById("pronunciatio__" + curr_persona_name_os).innerHTML = pronunciatio_content || "";
 	    }
+
+	    // New step's movement data has arrived: reset the conversation playback so
+	    // the "converse" phase rebuilds the queue once walking is done.
+	    convo_built = false;
 
 	    // If the side panel is open, refresh its visible fields from the freshly
 	    // written live spans. syncPanel is a no-op when no persona is selected.
@@ -536,8 +614,9 @@
 	        curr_persona.anims.stop();
 	        persona_tile_pos[curr_persona_name] = [dest[0], dest[1]];
 	      });
-	      phase = "process";
-	      step = step + 1;
+	      // Everyone has arrived (instantly): play out this step's conversations
+	      // before advancing.
+	      phase = "converse";
 
 	    } else {
 	      // ---- REPLAY / SMALL-STEP MODE: ANIMATE CURRENT→DESTINATION ----
@@ -628,12 +707,90 @@
 	            persona_animating[curr_persona_name] = false;
 	            finished_count++;
 	            if (finished_count === total) {
-	              phase = "process";
-	              step = step + 1;
+	              // Everyone has finished walking: play out this step's
+	              // conversations line-by-line before advancing the step.
+	              phase = "converse";
 	            }
 	          }
 	        });
 	      });
+	    }
+	  }
+
+	  else if (phase == "converse") {
+	    // ---- CONVERSE PHASE: play this step's conversations line by line ----
+	    // All agents have arrived at their tiles. Conversations play in PARALLEL:
+	    // a single global line index <convo_index> advances every ~1s, and at each
+	    // index every conversation reveals its turn at that index in the speaker's
+	    // bubble. The step advances once the index passes the LONGEST conversation,
+	    // so a step with many simultaneous chats still finishes in a few seconds.
+
+	    // Build the conversation list once per step.
+	    if (!convo_built) {
+	      conversation_queue = [];   // here: array of conversations, each = [{speaker,text},...]
+	      convo_index = 0;
+	      convo_frame_counter = 0;
+	      Object.keys(personas).forEach(n => clearBubble(n));
+
+	      // Each persona's "chat" holds the FULL transcript, duplicated on every
+	      // participant. Dedupe by transcript contents so each unique conversation
+	      // is played only once.
+	      let seen = {};
+	      Object.keys(personas).forEach(name => {
+	        let chat = execute_movement["persona"][name]["chat"];
+	        if (!chat || chat.length === 0) return;
+	        let key = JSON.stringify(chat);
+	        if (seen[key]) return;
+	        seen[key] = true;
+	        let turns = [];
+	        chat.forEach(turn => {
+	          if (personas[turn[0]]) turns.push({ speaker: turn[0], text: turn[1] });
+	        });
+	        if (turns.length) conversation_queue.push(turns);
+	      });
+	      convo_built = true;
+	    }
+
+	    let max_len = conversation_queue.reduce((m, c) => Math.max(m, c.length), 0);
+	    let active = document.getElementById("persona_panel").getAttribute("data-active-persona");
+
+	    // Nothing said this step, or every line has been shown: advance the step.
+	    if (max_len === 0 || convo_index >= max_len) {
+	      Object.keys(personas).forEach(n => { if (n !== active) clearBubble(n); });
+	      phase = "process";
+	      step = step + 1;
+	      return;
+	    }
+
+	    // At the start of each ~1s window, reveal the current line of every
+	    // conversation in its speaker's bubble (parallel playback).
+	    if (convo_frame_counter === 0) {
+	      // Speakers active at this index — used so we don't clear a bubble we are
+	      // about to (re)write.
+	      let speaking = {};
+	      conversation_queue.forEach(turns => {
+	        if (convo_index < turns.length) speaking[turns[convo_index].speaker] = true;
+	      });
+	      // Clear bubbles of agents not speaking now (keep the selected agent's).
+	      Object.keys(personas).forEach(n => {
+	        if (!speaking[n] && n !== active) clearBubble(n);
+	      });
+	      // Show each conversation's current line above its speaker.
+	      conversation_queue.forEach(turns => {
+	        if (convo_index >= turns.length) return;   // this convo already ended
+	        let turn = turns[convo_index];
+	        let sp = personas[turn.speaker];
+	        let lbl = pronunciatios[turn.speaker];
+	        lbl.x = sp.x - 6;
+	        lbl.y = sp.y - 42 - 32;
+	        setBubbleLine(turn.speaker, turn.speaker, turn.text);
+	      });
+	    }
+
+	    convo_frame_counter++;
+	    if (convo_frame_counter >= convo_frames_per_line) {
+	      convo_frame_counter = 0;
+	      convo_index++;
 	    }
 	  }
 	}

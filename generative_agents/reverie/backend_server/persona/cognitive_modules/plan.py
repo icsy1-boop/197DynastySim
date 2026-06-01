@@ -6,6 +6,7 @@ Description: This defines the "Plan" module for generative agents.
 """
 import datetime
 import math
+import os
 import random
 import sys
 import time
@@ -15,6 +16,11 @@ from global_methods import *
 from persona.prompt_template.run_gpt_prompt import *
 from persona.cognitive_modules.retrieve import *
 from persona.cognitive_modules.converse import *
+
+# Emoji output (the "pronunciatio") is deprecated and OFF by default: generating
+# it costs an extra LLM round-trip per distinct action. Set ENABLE_EMOJI=1 to
+# restore it (e.g. to reproduce an older run that still rendered emoji).
+ENABLE_EMOJI = os.environ.get("ENABLE_EMOJI", "0") == "1"
 
 _pronunciatio_cache = dict()
 
@@ -283,6 +289,8 @@ def generate_action_pronunciatio(act_desp, persona):
     "🧈🍞"
   """
   if debug: print ("GNS FUNCTION: <generate_action_pronunciatio>")
+  if not ENABLE_EMOJI:
+    return ""
   if act_desp in _pronunciatio_cache:
     return _pronunciatio_cache[act_desp]
   try:
@@ -989,7 +997,7 @@ def _chat_react(maze, persona, focused_event, reaction_mode, personas):
       chatting_with_buffer = {}
       chatting_with_buffer[init_persona.name] = 800
 
-    act_pronunciatio = "💬" 
+    act_pronunciatio = "💬" if ENABLE_EMOJI else ""
     act_obj_description = None
     act_obj_pronunciatio = None
     act_obj_event = (None, None, None)
@@ -1014,7 +1022,7 @@ def _wait_react(persona, reaction_mode):
   chatting_with_buffer = None
   chatting_end_time = None
 
-  act_pronunciatio = "⌛" 
+  act_pronunciatio = "⌛" if ENABLE_EMOJI else ""
   act_obj_description = None
   act_obj_pronunciatio = None
   act_obj_event = (None, None, None)

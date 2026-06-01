@@ -103,6 +103,12 @@
 			<div class="text-xs uppercase tracking-wide text-slate-400 font-semibold mb-1">Current Action</div>
 			<div id="panel_action" class="text-sm text-ink">&mdash;</div>
 		</section>
+		<!-- Emoji is deprecated; this section is only shown for runs that still
+		     produced one (otherwise syncPanel hides it). -->
+		<section id="panel_emoji_section" class="hidden">
+			<div class="text-xs uppercase tracking-wide text-slate-400 font-semibold mb-1">Emoji</div>
+			<div id="panel_pronunciatio" class="text-2xl text-ink leading-none">&mdash;</div>
+		</section>
 		<section>
 			<div class="text-xs uppercase tracking-wide text-slate-400 font-semibold mb-1">Location</div>
 			<div id="panel_location" class="text-sm text-ink">&mdash;</div>
@@ -140,6 +146,7 @@
 		<span id="current_action__{{ p_name_os }}"></span>
 		<span id="target_address__{{ p_name_os }}"></span>
 		<span id="chat__{{ p_name_os }}"></span>
+		<span id="pronunciatio__{{ p_name_os }}"></span>
 	{% endfor %}
 </div>
 
@@ -172,10 +179,19 @@
 		const action = readLiveSpan("current_action", os);
 		const loc = readLiveSpan("target_address", os);
 		const chat = readLiveSpan("chat", os);
+		const emoji = readLiveSpan("pronunciatio", os);
 		document.getElementById("panel_action").innerHTML = action || "&mdash;";
 		document.getElementById("panel_location").innerHTML = loc || "&mdash;";
 		document.getElementById("panel_chat").innerHTML =
 			chat || '<em class="text-slate-400">None at the moment</em>';
+		// Emoji is deprecated: only reveal the section when a run actually has one.
+		const emojiSection = document.getElementById("panel_emoji_section");
+		if (emoji && emoji.trim()) {
+			document.getElementById("panel_pronunciatio").innerHTML = emoji;
+			emojiSection.classList.remove("hidden");
+		} else {
+			emojiSection.classList.add("hidden");
+		}
 	}
 
 	function selectPersona(name) {
