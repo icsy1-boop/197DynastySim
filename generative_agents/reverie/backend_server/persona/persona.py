@@ -12,6 +12,7 @@ import math
 import sys
 import datetime
 import random
+import threading
 sys.path.append('../')
 
 from global_methods import *
@@ -33,6 +34,13 @@ class Persona:
     # <name> is the full name of the persona. This is a unique identifier for
     # the persona within Reverie. 
     self.name = name
+
+    # <plan_lock> serializes mutations to this persona's schedule/scratch state.
+    # Personas run their cognitive loop in parallel threads (see reverie.py);
+    # both a persona's own re-planning and another persona's chat-reaction can
+    # write this persona's f_daily_schedule. Held during those critical
+    # sections only. RLock so re-entrant acquisition by one thread is safe.
+    self.plan_lock = threading.RLock()
 
     # PERSONA MEMORY 
     # If there is already memory in folder_mem_saved, we load that. Otherwise,
