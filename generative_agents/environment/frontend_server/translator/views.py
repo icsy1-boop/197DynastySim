@@ -128,6 +128,12 @@ def home(request):
             if f.split("/")[-1][0] != "."]
     step = max(nums) if nums else 0
 
+  meta_file = f"storage/{sim_code}/reverie/meta.json"
+  sec_per_step = 10
+  if check_if_file_exists(meta_file):
+    with open(meta_file) as json_file:
+      sec_per_step = json.load(json_file).get("sec_per_step", 10)
+
   persona_names = []
   persona_names_set = set()
   for i in find_filenames(f"storage/{sim_code}/personas", ""):
