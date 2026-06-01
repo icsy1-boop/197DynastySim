@@ -774,11 +774,10 @@ def run_gpt_prompt_action_game_object(action_description,
     cleaned_response = gpt_response.strip()
     return cleaned_response
 
-  def get_fail_safe(): 
+  def get_fail_safe():
     fs = ("bed")
     return fs
 
-<<<<<<< HEAD
   if getattr(persona.scratch, 'agent_tier', 1) == 2:
     objects = [i.strip() for i in persona.s_mem.get_str_accessible_arena_game_objects(temp_address).split(",")]
     chosen = random.choice(objects) if objects and objects != [''] else "bed"
@@ -968,7 +967,6 @@ def run_gpt_prompt_event_triple(action_description, persona, verbose=False):
 
 
 
-<<<<<<< HEAD
   if getattr(persona.scratch, 'agent_tier', 1) == 2:
     act = action_description.split("(")[0].strip() if "(" in action_description else action_description
     triple = (persona.name, "is", act[:40])

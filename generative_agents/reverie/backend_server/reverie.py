@@ -454,7 +454,6 @@ class ReverieServer:
           # Then we need to actually have each of the personas perceive and
           # move. The movement for each of the personas comes in the form of
           # x y coordinates where the persona will move towards. e.g., (50, 34)
-<<<<<<< HEAD
           # Persona moves run in parallel: each persona.move() is dominated by
           # LLM HTTP latency, so threads are an effective concurrency primitive.
           movements = {"persona": dict(), "meta": dict()}
@@ -462,22 +461,11 @@ class ReverieServer:
           def _run_persona_move(item):
             persona_name, persona = item
             set_persona_tier(getattr(persona.scratch, 'agent_tier', 2))
-=======
-          # This is where the core brains of the personas are invoked.
-          # Run personas in parallel: each persona.move() is dominated by LLM
-          # HTTP latency, so threads are an effective concurrency primitive.
-          movements = {"persona": dict(),
-                       "meta": dict()}
-
-          def _run_persona_move(item):
-            persona_name, persona = item
->>>>>>> 3c35d5f (Parallelize persona moves and remove artificial LLM sleep delays)
             next_tile, pronunciatio, description, path = persona.move(
               self.maze, self.personas, self.personas_tile[persona_name],
               self.curr_time)
             return persona_name, persona, next_tile, pronunciatio, description, path
 
-<<<<<<< HEAD
           _step_start = time.time()
           results = []
           _executor = ThreadPoolExecutor(
@@ -507,13 +495,6 @@ class ReverieServer:
           for persona_name, persona, next_tile, pronunciatio, description, path in results:
             if next_tile is None or path is None:
               continue
-=======
-          with ThreadPoolExecutor(max_workers=len(self.personas)) as executor:
-            results = list(executor.map(_run_persona_move,
-                                        self.personas.items()))
-
-          for persona_name, persona, next_tile, pronunciatio, description, path in results:
->>>>>>> 3c35d5f (Parallelize persona moves and remove artificial LLM sleep delays)
             movements["persona"][persona_name] = {}
             movements["persona"][persona_name]["movement"] = next_tile
             movements["persona"][persona_name]["path"] = [list(t) for t in path]
