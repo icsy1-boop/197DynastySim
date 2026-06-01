@@ -1,47 +1,37 @@
-7,Barangay Mabuhay,Residential A,Mansion Interior,Dining Table
-8,Barangay Mabuhay,Residential A,Garage,Garage
-9,Barangay Mabuhay,Residential A,Garden,Garden
 10,Barangay Mabuhay,Residential A,Mansion Interior,Bed
 11,Barangay Mabuhay,Residential A,Mansion Interior,Chair
 12,Barangay Mabuhay,Residential A,Mansion Interior,Table
-13,Barangay Mabuhay,Residential A,Mansion Interior,Gate
-14,Barangay Mabuhay,Residential B,House Interior,Dining Table
-15,Barangay Mabuhay,Residential B,Backyard,Backyard
-19,Barangay Mabuhay,Residential B,Backyard,Gate
-21,Barangay Mabuhay,Residential C,Shanty Interior,Shared Water Container
-22,Barangay Mabuhay,Residential C,Shanty Interior,Door
-23,Barangay Mabuhay,Market,Central Market,Market Stall Counter
-24,Barangay Mabuhay,Market,Central Market,Ice Chest
-25,Barangay Mabuhay,Market,Central Market,Price Board
-30,Barangay Mabuhay,Barangay Hall,Captain's Desk,Captain's Desk
-31,Barangay Mabuhay,Barangay Hall,Waiting Area,Bulletin Board
-34,Barangay Mabuhay,Barangay Hall,Waiting Area,Door/Gate
-35,Barangay Mabuhay,Municipal Hall,Mayor's Office,Mayor's Desk
-36,Barangay Mabuhay,Municipal Hall,Council Chamber,Council Table
+7,Barangay Mabuhay,Residential A,Mansion Interior,Dining Table
+25,Barangay Mabuhay,Market,Central Market,Bulletin Board
+14,Barangay Mabuhay,Municipal Hall,Council Chamber,Meeting Table
 37,Barangay Mabuhay,Municipal Hall,Records Room,Filing Cabinet
-38,Barangay Mabuhay,Municipal Hall,Records Room,Transaction Window
-41,Barangay Mabuhay,Municipal Hall,Lobby,Bulletin Board
-43,Barangay Mabuhay,School,Classroom,Blackboard/Whiteboard
-44,Barangay Mabuhay,School,Classroom,Student Desk
+54,Barangay Mabuhay,Municipal Hall,Lobby,Waiting Bench
+13,Barangay Mabuhay,Barangay Hall,Waiting Area,Reception Desk
+8,Barangay Mabuhay,Residential A,Garage,Garage Tools
+9,Barangay Mabuhay,Residential A,Garden,Garden Plant
+15,Barangay Mabuhay,Residential B,Backyard,Backyard Things
+23,Barangay Mabuhay,Market,Vegetable Stall,Market Stall
+24,Barangay Mabuhay,Market,Vegetable Stall,Crates/Chests
+30,Barangay Mabuhay,Barangay Hall,Captain's Office,Captain's Desk
+35,Barangay Mabuhay,Municipal Hall,Mayor's Office,Mayor's Desk
+38,Barangay Mabuhay,Municipal Hall,Lobby,Transaction Window
+43,Barangay Mabuhay,School,Classroom,Blackboard
+44,Barangay Mabuhay,School,Classroom,Student's Desk
 45,Barangay Mabuhay,School,Library,Bookshelf
-46,Barangay Mabuhay,School,Playground,Playground Equipment
-47,Barangay Mabuhay,School,Classroom,PTA Meeting Table
+46,Barangay Mabuhay,School,Playground,Playground Toys
 51,Barangay Mabuhay,Health Center,Treatment Room,Examination Table
 52,Barangay Mabuhay,Health Center,Consultation Room,Medicine Cabinet
-53,Barangay Mabuhay,Health Center,Treatment Room,Nurse's Station
-54,Barangay Mabuhay,Health Center,Pharmacy,Waiting Bench
+53,Barangay Mabuhay,Health Center,Pharmacy,Nurse Station
 57,Barangay Mabuhay,Construction Site,Cement Mixing Area,Cement Mixer
-58,Barangay Mabuhay,Construction Site,Scaffolding,Scaffolding
-59,Barangay Mabuhay,Construction Site,Storage Shed,Materials Storage Shed
+58,Barangay Mabuhay,Construction Site,Scaffolding Area,Scaffolding
+59,Barangay Mabuhay,Construction Site,Storage Shed,Construction Storage
 61,Barangay Mabuhay,Factory Zone,Assembly Line,Assembly Machine
-62,Barangay Mabuhay,Factory Zone,Supervisor’s Office,Tool Cabinet
+62,Barangay Mabuhay,Factory Zone,Storage Warehouse,Factory Storage
 63,Barangay Mabuhay,Factory Zone,Supervisor’s Office,Supervisor's Desk
 64,Barangay Mabuhay,Factory Zone,Supervisor’s Office,Safety Gear Rack
-66,Barangay Mabuhay,Police Station,Reception Desk,Front Desk/Blotter
 67,Barangay Mabuhay,Police Station,Evidence Room,Evidence Box
 68,Barangay Mabuhay,Police Station,Holding Cell,Holding Cell
 69,Barangay Mabuhay,Police Station,Chief's Office,Radio/Comm Device
 73,Barangay Mabuhay,Media CSO Node,Broadcast Studio,Camera/Recording Equipment
 74,Barangay Mabuhay,Media CSO Node,Editing Room,Computer/Monitor
 75,Barangay Mabuhay,Media CSO Node,CSO Meeting Hall,Story Planning Whiteboard
-76,Barangay Mabuhay,Media CSO Node,CSO Meeting Hall,Document Filing Cabinet
