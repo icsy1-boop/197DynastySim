@@ -92,9 +92,13 @@ class ReverieServer:
     # reverie/meta/json's fork variable. 
     self.sim_code = sim_code
     sim_folder = f"{fs_storage}/{self.sim_code}"
+
+    # If the target folder already exists, resume in-place instead of
+    # overwriting it with a fresh copy from the fork source.
     resuming = os.path.exists(sim_folder)
     if not resuming:
       copyanything(fork_folder, sim_folder)
+
 
     with open(f"{sim_folder}/reverie/meta.json") as json_file:
       reverie_meta = json.load(json_file)
@@ -103,6 +107,9 @@ class ReverieServer:
       with open(f"{sim_folder}/reverie/meta.json", "w") as outfile:
         reverie_meta["fork_sim_code"] = fork_sim_code
         outfile.write(json.dumps(reverie_meta, indent=2))
+
+    if resuming:
+      print(f"Resuming existing simulation '{sim_code}' at step {reverie_meta['step']}.")
 
     # LOADING REVERIE'S GLOBAL VARIABLES
     # The start datetime of the Reverie: 
@@ -871,14 +878,9 @@ class ReverieServer:
 
 
 if __name__ == '__main__':
-  # rs = ReverieServer("base_the_ville_isabella_maria_klaus", 
-  #                    "July1_the_ville_isabella_maria_klaus-step-3-1")
-  # rs = ReverieServer("July1_the_ville_isabella_maria_klaus-step-3-20", 
-  #                    "July1_the_ville_isabella_maria_klaus-step-3-21")
-  # rs.open_server()
-
   origin = input("Enter the name of the forked simulation: ").strip()
-  target = input("Enter the name of the new simulation: ").strip()
+  target_input = input("Enter the name of the new simulation (or press Enter to resume origin): ").strip()
+  target = target_input if target_input else origin
 
   rs = ReverieServer(origin, target)
   rs.open_server()
