@@ -13,7 +13,14 @@ Usage (called from reverie.py):
 """
 import csv
 import os
+import json
 import datetime
+
+# Welfare & unrest are integrated world state: each logging tick they drift
+# toward a corruption-driven target rather than snapping, so the community
+# condition evolves over weeks. Rates are per 10-step logging tick (env-tunable).
+_WELFARE_RATE = float(os.environ.get("WELFARE_RATE", 0.08))
+_UNREST_RATE  = float(os.environ.get("UNREST_RATE", 0.10))
 
 # ---------------------------------------------------------------------------
 # 1. Dynasty Trust Initialization
@@ -124,7 +131,7 @@ def _estimate_agent_corruption(persona, agent_row):
 
 
 def log_corruption_step(personas, agent_rows_by_name, step, curr_time, output_path,
-                        event_bonus=0.0):
+                        event_bonus=0.0, prev_metrics=None):
     """
     Compute a barangay-wide corruption index for this sim step and append it
     to a running CSV log at <output_path>/corruption_log.csv.
@@ -173,14 +180,26 @@ def log_corruption_step(personas, agent_rows_by_name, step, curr_time, output_pa
     corruption_index = (weighted_corruption / total_weight if total_weight else 0.0)
     corruption_index = max(0.0, min(1.0, corruption_index + dynasty_bonus + event_bonus))
 
-    # Derived welfare & unrest (the feedback loop the news bulletin surfaces):
-    # welfare starts from the population's mean satisfaction and is dragged down
-    # by corruption; unrest rises with corruption and falls with welfare.
+    # Integrated welfare & unrest (the feedback loop the news bulletin surfaces).
+    # base_welfare is the clean-governance ceiling from the population's baseline
+    # satisfaction (stable). Welfare and unrest each DRIFT toward a corruption-
+    # driven target so sustained corruption visibly degrades the community over
+    # weeks and clean governance lets it recover; prev values carry the state.
     sats = [float(r.get("satisfaction", 50)) for r in agent_rows_by_name.values()
             if r.get("satisfaction") not in (None, "")]
     base_welfare = (sum(sats) / len(sats) / 100.0) if sats else 0.5
-    welfare_score = max(0.0, min(1.0, base_welfare * (1.0 - 0.5 * corruption_index)))
-    unrest = max(0.0, min(1.0, 0.15 + 0.6 * corruption_index - 0.4 * (welfare_score - 0.5)))
+    prev = prev_metrics or {}
+
+    welfare_target = max(0.0, min(1.0, base_welfare * (1.0 - 0.7 * corruption_index)))
+    prev_welfare = float(prev.get("welfare_score", base_welfare))
+    welfare_score = max(0.0, min(1.0,
+        prev_welfare + _WELFARE_RATE * (welfare_target - prev_welfare)))
+
+    unrest_target = max(0.0, min(1.0,
+        0.6 * corruption_index + 0.4 * (1.0 - welfare_score) - 0.1))
+    prev_unrest = float(prev.get("unrest", unrest_target))
+    unrest = max(0.0, min(1.0,
+        prev_unrest + _UNREST_RATE * (unrest_target - prev_unrest)))
 
     write_header = not os.path.exists(log_file)
     with open(log_file, "a", newline="") as f:
@@ -197,8 +216,39 @@ def log_corruption_step(personas, agent_rows_by_name, step, curr_time, output_pa
             f"{unrest:.4f}",
         ])
 
-    return {"corruption_index": corruption_index, "welfare_score": welfare_score,
-            "unrest": unrest, "dynasty_bonus": dynasty_bonus}
+    # Carry forward any extra state (event_bonus, recent_events) so the 10-step
+    # recompute doesn't drop it, then overwrite the computed fields.
+    result = dict(prev)
+    result.update({"corruption_index": corruption_index, "welfare_score": welfare_score,
+                   "unrest": unrest, "dynasty_bonus": dynasty_bonus,
+                   "welfare_target": welfare_target, "unrest_target": unrest_target})
+    return result
+
+
+# ---------------------------------------------------------------------------
+# 3. Per-sim world-metrics persistence (survives autosave / VM reboot)
+# ---------------------------------------------------------------------------
+
+def load_world_metrics(metrics_dir):
+    """Load integrated world metrics from <metrics_dir>/world_metrics.json (or {})."""
+    path = os.path.join(metrics_dir, "world_metrics.json")
+    if os.path.exists(path):
+        try:
+            with open(path) as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+
+def save_world_metrics(metrics_dir, metrics):
+    """Persist integrated world metrics so welfare/unrest accumulate across reboots."""
+    try:
+        os.makedirs(metrics_dir, exist_ok=True)
+        with open(os.path.join(metrics_dir, "world_metrics.json"), "w") as f:
+            json.dump(metrics, f, indent=2)
+    except Exception:
+        pass
 
 
 def load_agent_rows(csv_path):

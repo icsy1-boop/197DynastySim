@@ -112,6 +112,9 @@ def generate_news_bulletin(personas, world_metrics, curr_time, context_notes="")
     corruption = world_metrics.get("corruption_index", 0.5)
     welfare    = world_metrics.get("welfare_score", 0.5)
     unrest     = world_metrics.get("unrest", 0.3)
+    recent_events = world_metrics.get("recent_events") or []
+    events_text = ("\n".join(f"  - {e}" for e in recent_events[-3:])
+                   if recent_events else "  (none)")
 
     def describe(val, low, mid, high):
         if val < 0.33: return low
@@ -125,6 +128,9 @@ Current community conditions:
 - Corruption level: {describe(corruption, 'low', 'moderate', 'high')} ({corruption:.2f})
 - Community welfare: {describe(welfare, 'poor', 'fair', 'good')} ({welfare:.2f})
 - Social tension: {describe(unrest, 'calm', 'tense', 'volatile')} ({unrest:.2f})
+
+Recent notable events:
+{events_text}
 
 What community members are talking about:
 {snippets_text}

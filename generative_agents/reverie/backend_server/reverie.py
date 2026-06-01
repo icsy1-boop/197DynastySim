@@ -43,11 +43,13 @@ from global_methods import *
 from utils import *
 from maze import *
 from persona.persona import *
-from barangay_mechanics import inject_dynasty_memories, log_corruption_step, load_agent_rows
+from barangay_mechanics import (inject_dynasty_memories, log_corruption_step,
+                                load_agent_rows, load_world_metrics, save_world_metrics)
 from barangay_election import (run_election, poll_political_intentions,
                                announce_election, finalize_candidacy)
 from barangay_news import broadcast_news
 from barangay_corruption_events import step_corruption_events
+from barangay_unrest import step_unrest
 
 # Path to the barangay agents CSV that this sim was bootstrapped from. MUST match
 # the running population or corruption/election/news see the wrong agents. Set via
@@ -63,6 +65,7 @@ _ANTIDYNASTY = os.environ.get("ANTIDYNASTY", "0") == "1"
 _MONTH = 720   # steps per sim-month (1hr/step)
 _WEEK  = 168   # steps per sim-week
 _CORRUPTION_INTERVAL = int(os.environ.get("CORRUPTION_INTERVAL", 48))  # ~2 sim-days
+_PROTEST_INTERVAL = int(os.environ.get("PROTEST_INTERVAL", 72))        # ~3 sim-days
 # Output directory for corruption logs and CSV exports
 _BARANGAY_OUTPUT = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "../../../output/barangay"))
@@ -181,11 +184,13 @@ class ReverieServer:
     self.server_sleep = 0.1
     # {name -> position_key} — populated by monthly/weekly polls, used at election
     self._declared_candidates = {}
-    # latest world state metrics for news broadcasts
-    self._world_metrics = {}
-    # persistent corruption accrued from active corruption events; added on top
-    # of the trait-based baseline so the 10-step recompute can't erase it.
-    self._corruption_event_bonus = 0.0
+    # World metrics (corruption/welfare/unrest) persist per-sim so the integrated
+    # welfare/unrest state accumulates across autosaves and VM reboots instead of
+    # resetting every restart.
+    self._metrics_dir = f"{sim_folder}/reverie"
+    self._world_metrics = load_world_metrics(self._metrics_dir)
+    # persistent corruption from active corruption events; restored from disk.
+    self._corruption_event_bonus = float(self._world_metrics.get("event_bonus", 0.0))
 
     # SIGNALING THE FRONTEND SERVER: 
     # curr_sim_code.json contains the current simulation code, and
@@ -228,8 +233,13 @@ class ReverieServer:
     reverie_meta["persona_names"] = list(self.personas.keys())
     reverie_meta["step"] = self.step
     reverie_meta_f = f"{sim_folder}/reverie/meta.json"
-    with open(reverie_meta_f, "w") as outfile: 
+    with open(reverie_meta_f, "w") as outfile:
       outfile.write(json.dumps(reverie_meta, indent=2))
+
+    # Persist integrated world metrics (welfare/unrest/corruption/event_bonus)
+    # per-sim so the feedback loop accumulates across reboots.
+    self._world_metrics["event_bonus"] = self._corruption_event_bonus
+    save_world_metrics(self._metrics_dir, self._world_metrics)
 
     # Save the personas.
     for persona_name, persona in self.personas.items(): 
@@ -520,8 +530,9 @@ class ReverieServer:
           if self.step % 10 == 0 and self.barangay_agent_rows:
             self._world_metrics = log_corruption_step(
                 self.personas, self.barangay_agent_rows,
-                self.step, self.curr_time, _BARANGAY_OUTPUT,
-                event_bonus=self._corruption_event_bonus)
+                self.step, self.curr_time, self._metrics_dir,
+                event_bonus=self._corruption_event_bonus,
+                prev_metrics=self._world_metrics)
 
           int_counter -= 1
 
@@ -558,10 +569,27 @@ class ReverieServer:
                 # folds it into the baseline rather than discarding it.
                 self._corruption_event_bonus = min(
                     0.5, self._corruption_event_bonus + _d)
+                self._world_metrics["event_bonus"] = self._corruption_event_bonus
                 _cur = self._world_metrics.get("corruption_index", 0.5)
                 self._world_metrics["corruption_index"] = min(1.0, _cur + _d)
             except Exception as _e:
               print(f"[CORRUPTION] tick failed: {_e}", flush=True)
+
+          # Unrest-driven protests — when integrated unrest is high, residents
+          # protest: anti-incumbent memories (-> votes) + a news flash. Closes
+          # corruption -> welfare down -> unrest up -> protest -> election.
+          if (self.step > 0 and self.step % _PROTEST_INTERVAL == 0
+              and self.barangay_agent_rows):
+            try:
+              _pn, _ptext = step_unrest(
+                  self.personas, self.barangay_agent_list,
+                  self._world_metrics, self.curr_time)
+              if _ptext:
+                _ev = self._world_metrics.setdefault("recent_events", [])
+                _ev.append(_ptext)
+                self._world_metrics["recent_events"] = _ev[-3:]
+            except Exception as _e:
+              print(f"[PROTEST] tick failed: {_e}", flush=True)
 
           # ── Election timeline ──────────────────────────────────────────────
           if self.barangay_agent_rows:
