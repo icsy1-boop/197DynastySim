@@ -121,6 +121,15 @@
 
 	let curr_maze = "barangay_mabuhay";
 
+  // Placeholder sprites recycled from the_ville so agents are visually distinct.
+  const CHAR_KEYS = ["Abigail_Chen","Adam_Smith","Arthur_Burton","Ayesha_Khan",
+    "Carlos_Gomez","Carmen_Ortiz","Eddy_Lin","Francisco_Lopez","Giorgio_Rossi",
+    "Hailey_Johnson","Isabella_Rodriguez","Jane_Moreno","Jennifer_Moore","John_Lin",
+    "Klaus_Mueller","Latoya_Williams","Maria_Lopez","Mei_Lin","Rajiv_Patel",
+    "Ryan_Park","Sam_Moore","Tamara_Taylor","Tom_Moreno","Wolfgang_Schulz","Yuriko_Yamamoto"];
+  function charForName(name){ let h=0; for(let i=0;i<name.length;i++) h=(h*31+name.charCodeAt(i))>>>0; return CHAR_KEYS[h % CHAR_KEYS.length]; }
+
+
 	// <tile_width> is the width of one individual tile (tiles are square)
 	let tile_width = 32;
 
@@ -259,7 +268,9 @@
 	  //       https://www.youtube.com/watch?v=fdXcD9X4NrQ&ab_channel=MorganPage
 	  // Local copy of the misa character atlas (was an external GitHub CDN URL,
 	  // which the browser can't always reach — breaking sprite creation).
-	  this.load.atlas("atlas",
+	  const _CHAR_BASE = "{% static 'assets/characters/' %}";
+  for (const _k of CHAR_KEYS) { this.load.atlas(_k, _CHAR_BASE + _k + ".png", _CHAR_BASE + "atlas.json"); }
+  this.load.atlas("atlas",
 	                  "{% static 'assets/characters/misa_atlas/atlas.png' %}",
 	                  "{% static 'assets/characters/misa_atlas/atlas.json' %}");
 	}
@@ -387,11 +398,12 @@
 	    let start_pos = [spawn_tile_loc[persona_name][0] * tile_width + tile_width / 2, 
 	                     spawn_tile_loc[persona_name][1] * tile_width + tile_width];
 	    let new_sprite = this.physics.add
-	                         .sprite(start_pos[0], start_pos[1], "atlas", "misa-front")
+	                         .sprite(start_pos[0], start_pos[1], charForName(persona_name), "down")
 	                         .setSize(30, 40)
 	                         .setOffset(0, 32); // DEBUG 1 --- I added 32 offset on Dec 29. 
 	    // Here, we are creating the persona and its speech-bubble sprite.
-	    personas[persona_name] = new_sprite;
+	    new_sprite.char_key = new_sprite.texture.key;
+    personas[persona_name] = new_sprite;
 	    // The floating bubble defaults to MMORPG-style behaviour: it shows the
 	    // live conversation between agents and is hidden whenever the agent is
 	    // not chatting. (Emoji output is deprecated; any emoji is routed to the
@@ -453,6 +465,11 @@
 	  // Create the player's walking animations from the texture atlas. These are
 	  // stored in the global animation manager so any sprite can access them.
 	  const anims = this.anims;
+  for (const _k of CHAR_KEYS) {
+    for (const [_d,_pfx] of [["left","left-walk."],["right","right-walk."],["front","down-walk."],["back","up-walk."]]) {
+      this.anims.create({ key: _k+"-"+_d+"-walk", frames: this.anims.generateFrameNames(_k, { prefix:_pfx, start:0, end:3, zeroPad:3 }), frameRate:4, repeat:-1 });
+    }
+  }
 	  anims.create({
 	    key: "misa-left-walk",
 	    frames: anims.generateFrameNames("atlas", { prefix: "misa-left-walk.", start: 0, end: 3, zeroPad: 3 }),
@@ -678,10 +695,10 @@
 	              } else if (dy !== 0) {
 	                dir = dy > 0 ? "d" : "u";
 	              }
-	              if (dir === "l") curr_persona.anims.play("misa-left-walk", true);
-	              else if (dir === "r") curr_persona.anims.play("misa-right-walk", true);
-	              else if (dir === "u") curr_persona.anims.play("misa-back-walk", true);
-	              else if (dir === "d") curr_persona.anims.play("misa-front-walk", true);
+	              if (dir === "l") curr_persona.anims.play((curr_persona.char_key||"atlas")+"-left-walk", true);
+	              else if (dir === "r") curr_persona.anims.play((curr_persona.char_key||"atlas")+"-right-walk", true);
+	              else if (dir === "u") curr_persona.anims.play((curr_persona.char_key||"atlas")+"-back-walk", true);
+	              else if (dir === "d") curr_persona.anims.play((curr_persona.char_key||"atlas")+"-front-walk", true);
 	              if (dir) pre_anims_direction_dict[curr_persona_name] = dir;
 
 	              curr_pronunciatio.x = curr_persona.x - 6;
@@ -703,10 +720,10 @@
 
 	            curr_persona.anims.stop();
 	            let d = pre_anims_direction_dict[curr_persona_name];
-	            if (d === "l") curr_persona.setTexture("atlas", "misa-left");
-	            else if (d === "r") curr_persona.setTexture("atlas", "misa-right");
-	            else if (d === "u") curr_persona.setTexture("atlas", "misa-back");
-	            else if (d === "d") curr_persona.setTexture("atlas", "misa-front");
+	            if (d === "l") curr_persona.setTexture(curr_persona.char_key, "left");
+	            else if (d === "r") curr_persona.setTexture(curr_persona.char_key, "right");
+	            else if (d === "u") curr_persona.setTexture(curr_persona.char_key, "up");
+	            else if (d === "d") curr_persona.setTexture(curr_persona.char_key, "down");
 
 	            persona_animating[curr_persona_name] = false;
 	            finished_count++;
