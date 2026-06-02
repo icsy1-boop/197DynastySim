@@ -2,12 +2,14 @@
 import os
 
 # Institution's Qwen inference endpoint (Tier-2 citizens, 27B)
-qwen_endpoint = os.environ.get("QWEN_ENDPOINT", "http://localhost:8001")
-qwen_model = os.environ.get("QWEN_MODEL", "Qwen/Qwen2.5-14B-Instruct")
+qwen_endpoint = os.environ.get("QWEN_ENDPOINT", "http://localhost:8015")
+qwen_model = os.environ.get("QWEN_MODEL", "huihui-ai/Huihui-Qwen3.5-0.8B-abliterated")
 
 # Embedding endpoint (nomic-ai on VM A, port 8002)
-embedding_endpoint = os.environ.get("EMBEDDING_ENDPOINT", "http://10.158.24.216:8002")
-embedding_model = os.environ.get("EMBEDDING_MODEL", "nomic-ai/nomic-embed-text-v1.5")
+embedding_endpoint = os.environ.get("EMBEDDING_ENDPOINT", "http://localhost:11434")
+embedding_model = os.environ.get("EMBEDDING_MODEL", "nomic-embed-text")
+
+openai_api_model = "huihui-ai/Huihui-Qwen3.5-0.8B-abliterated"
 
 openai_api_key = "not-used"
 
@@ -20,6 +22,6 @@ env_visuals = f"{maze_assets_loc}/barangay/visuals"
 fs_storage = "../../environment/frontend_server/storage"
 fs_temp_storage = "../../environment/frontend_server/temp_storage"
 
-collision_block_id = "32125"
+collision_block_id = "0"
 
 debug = True

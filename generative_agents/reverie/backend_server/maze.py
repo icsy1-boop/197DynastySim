@@ -10,7 +10,6 @@ import numpy
 import datetime
 import pickle
 import time
-import math
 
 from global_methods import *
 from utils import *
@@ -78,16 +77,24 @@ class Maze:
     # the number that represents the color block from the blocks folder. 
     maze_folder = f"{env_matrix}/maze"
 
+    def _flatten_maze(path):
+      rows = read_file_to_list(path, header=False)
+      # Original single-row CSVs return [[...all cells...]]; multi-row CSVs
+      # return [[row0...], [row1...], ...] — flatten both cases uniformly.
+      if len(rows) == 1:
+        return rows[0]
+      return [cell for row in rows for cell in row]
+
     _cm = maze_folder + "/collision_maze.csv"
-    collision_maze_raw = read_file_to_list(_cm, header=False)[0]
+    collision_maze_raw = _flatten_maze(_cm)
     _sm = maze_folder + "/sector_maze.csv"
-    sector_maze_raw = read_file_to_list(_sm, header=False)[0]
+    sector_maze_raw = _flatten_maze(_sm)
     _am = maze_folder + "/arena_maze.csv"
-    arena_maze_raw = read_file_to_list(_am, header=False)[0]
+    arena_maze_raw = _flatten_maze(_am)
     _gom = maze_folder + "/game_object_maze.csv"
-    game_object_maze_raw = read_file_to_list(_gom, header=False)[0]
+    game_object_maze_raw = _flatten_maze(_gom)
     _slm = maze_folder + "/spawning_location_maze.csv"
-    spawning_location_maze_raw = read_file_to_list(_slm, header=False)[0]
+    spawning_location_maze_raw = _flatten_maze(_slm)
 
     # Loading the maze. The mazes are taken directly from the json exports of
     # Tiled maps. They should be in csv format. 
@@ -220,8 +227,8 @@ class Maze:
     EXAMPLE OUTPUT 
       Given (1600, 384), outputs (50, 12)
     """
-    x = math.ceil(px_coordinate[0]/self.sq_tile_size)
-    y = math.ceil(px_coordinate[1]/self.sq_tile_size)
+    x = int(px_coordinate[0]/self.sq_tile_size)
+    y = int(px_coordinate[1]/self.sq_tile_size)
     return (x, y)
 
 

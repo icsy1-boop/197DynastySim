@@ -564,6 +564,7 @@
 	      let curr_persona_name = Object.keys(personas)[i];
 	      let curr_persona_name_os = curr_persona_name.replace(/ /g, "_");
 	      let persona_data = execute_movement["persona"][curr_persona_name];
+	      if (!persona_data) continue;
 
 	      let pronunciatio_content = persona_data["pronunciatio"];
 	      let description_content = persona_data["description"];
@@ -606,6 +607,7 @@
 	        let curr_persona = personas[curr_persona_name];
 	        let curr_pronunciatio = pronunciatios[curr_persona_name];
 	        let persona_data = execute_movement["persona"][curr_persona_name];
+	        if (!persona_data) return;
 	        let dest = persona_data["movement"];
 
 	        curr_persona.setPosition(dest[0] * tile_width, dest[1] * tile_width);
@@ -632,13 +634,15 @@
 	      // to the next step's data while slow ones are still mid-tween.
 	      if (all_persona_names.some(n => persona_animating[n])) return;
 
-	      let total = all_persona_names.length;
+	      let total = all_persona_names.filter(n => execute_movement["persona"][n]).length;
 	      let finished_count = 0;
+	      if (total === 0) { phase = "converse"; return; }
 
 	      all_persona_names.forEach(curr_persona_name => {
 	        let curr_persona = personas[curr_persona_name];
 	        let curr_pronunciatio = pronunciatios[curr_persona_name];
 	        let persona_data = execute_movement["persona"][curr_persona_name];
+	        if (!persona_data) return;
 	        let dest = persona_data["movement"]; // final destination tile [x, y]
 
 	        // Build the waypoint list.
