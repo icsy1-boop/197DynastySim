@@ -603,7 +603,10 @@
 	      document.getElementById("chat__" + curr_persona_name_os).innerHTML = chat_content;
 	      // Emoji (when an enabled run produced one) is surfaced in the stats panel.
 	      document.getElementById("pronunciatio__" + curr_persona_name_os).innerHTML = pronunciatio_content || "";
-	    }
+		  // Clear the thought span too, which is only used for hover tooltip output and should
+		  const thoughtSpan = document.getElementById("thought__" + curr_persona_name_os);
+		  if (thoughtSpan) thoughtSpan.textContent = "";
+		}
 
 	    // New step's movement data has arrived: reset the conversation playback so
 	    // the "converse" phase rebuilds the queue once walking is done.

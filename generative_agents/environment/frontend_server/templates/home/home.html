@@ -71,6 +71,8 @@
 	<div id="tooltip_name" class="font-semibold text-sm mb-0.5"></div>
 	<div id="tooltip_action" class="text-slate-200"></div>
 	<div id="tooltip_chat" class="text-indigo-200 mt-1 italic"></div>
+	<div id="tooltip_name_thought" class="italic mt-1"></div>
+	<div id="tooltip_thoughts" class="text-green-200 italic"></div>
 </div>
 
 <!-- ==================================================================== -->
@@ -147,6 +149,7 @@
 		<span id="target_address__{{ p_name_os }}"></span>
 		<span id="chat__{{ p_name_os }}"></span>
 		<span id="pronunciatio__{{ p_name_os }}"></span>
+		<span id="thought__{{ p_name_os }}"></span>
 	{% endfor %}
 </div>
 
@@ -367,6 +370,40 @@
 			chatEl.textContent = "";
 			chatEl.classList.add("hidden");
 		}
+		// show current thoughts came from the tooltip's state details fetch, so it's more likely to be stale / missing than the live action/chat spans. Only show it when we have something non-empty to show.
+		document.getElementById("tooltip_name_thought").textContent = `${name}'s Thoughts: `;
+		const thoughtsEl = document.getElementById("tooltip_thoughts");
+		const cached = readLiveSpan("thought", os);
+		if (cached && cached !== "__loading__") {
+			// Already fetched this step — show it immediately.
+			thoughtsEl.textContent = cached;
+			thoughtsEl.classList.remove("hidden");
+		} else if (!cached) {
+			// First hover this step: fire a fetch and show a placeholder.
+			thoughtsEl.textContent = "…";
+			thoughtsEl.classList.remove("hidden");
+			document.getElementById("thought__" + os).textContent = "__loading__";
+			fetch(`/persona_state_json/${encodeURIComponent(sim_code_for_state)}/${encodeURIComponent(os)}/`)
+				.then(r => { if (!r.ok) throw new Error(r.status); return r.json(); })
+				.then(data => {
+					const nodes = data.a_mem_thought || [];
+					const text = nodes.length ? nodes[0].description : "";
+					document.getElementById("thought__" + os).textContent = text;
+					// Update the tooltip if this agent is still being hovered.
+					const activeTip = document.getElementById("tooltip_name").textContent;
+					if (activeTip === name && !tip.classList.contains("hidden")) {
+						if (text) {
+							thoughtsEl.textContent = text;
+						} else {
+							thoughtsEl.classList.add("hidden");
+						}
+					}
+				})
+				.catch(() => {
+					document.getElementById("thought__" + os).textContent = "";
+				});
+		}
+   		// If cached === "__loading__": fetch already in flight, placeholder "…" already shown — nothing to do.
 		tip.style.left = Math.min(screenX + 14, window.innerWidth - 280) + "px";
 		tip.style.top = Math.max(screenY - 10, 8) + "px";
 		tip.classList.remove("hidden");
