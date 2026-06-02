@@ -583,8 +583,13 @@ def resolve_winners(vote_counts, candidates, personas, agent_rows, antidynasty):
 
 def apply_role_changes(winners, personas, agent_rows):
     """
-    Update scratch.role for winners and demote outgoing officials.
+    Promote winners and demote outgoing officials. Routes through persona_md so
+    the change updates not just role/tier but the identity fields that drive the
+    daily plan (lifestyle / currently / duties) AND writes it back to the agent's
+    .md — so a demoted official actually stops reporting to Barangay Hall and a
+    new winner takes up their office.
     """
+    import persona_md
     rows_by_name = {r["name"].strip(): r for r in agent_rows}
     winner_names = {n for seats in winners.values() for n in seats}
 
@@ -592,16 +597,18 @@ def apply_role_changes(winners, personas, agent_rows):
     for name, persona in personas.items():
         role = getattr(persona.scratch, "role", "")
         if role in ELECTED_POSITIONS and name not in winner_names:
-            persona.scratch.role = "civil_servant_admin"
-            persona.scratch.agent_tier = 1
+            persona_md.apply_role(persona, rows_by_name.get(name), "civil_servant_admin")
+            persona_md.write_md(persona, rows_by_name.get(name))
             logger.info(f"[ELECTION] {name} lost office → civil_servant_admin")
 
     # Promote winners
     for position, seat_list in winners.items():
         for winner_name in seat_list:
             if winner_name in personas:
-                personas[winner_name].scratch.role = position
-                personas[winner_name].scratch.agent_tier = 1
+                persona_md.apply_role(personas[winner_name],
+                                      rows_by_name.get(winner_name), position)
+                persona_md.write_md(personas[winner_name],
+                                    rows_by_name.get(winner_name))
                 logger.info(f"[ELECTION] {winner_name} → {position}")
 
 

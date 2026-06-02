@@ -226,6 +226,15 @@ def write_persona_md(md_path, scratch, row):
     for section, key in _MD_SECTIONS.items():
         lines += [f"## {section}", scratch[key], ""]
 
+    # Dynamism-relevant numeric attributes, round-tripped via persona_md so they
+    # can be hand-edited mid-run to steer corruption/election/news.
+    lines += ["## Attributes"]
+    for k in ("greed", "integrity", "ambition", "family_loyalty",
+              "satisfaction", "initial_trust_score"):
+        if row.get(k) not in (None, ""):
+            lines += [f"- {k}: {row[k]}"]
+    lines += [""]
+
     with open(md_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
 

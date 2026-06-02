@@ -451,6 +451,17 @@ class ReverieServer:
                        None, None, None)
               self.maze.remove_event_from_tile(blank, new_tile)
 
+          # MD source-of-truth: at the start of each sim-day re-seed agents from
+          # their .md (manual edits, or sim-written role changes) BEFORE they
+          # plan, so an edited/updated .md takes effect in that day's plan.
+          # mtime-gated, so unedited agents are untouched.
+          if self.step > 0 and self.step % 24 == 0 and self.barangay_agent_rows:
+            try:
+              import persona_md
+              persona_md.reload_all(self.personas, self.barangay_agent_rows)
+            except Exception as _e:
+              print(f"[MD] reload failed: {_e}", flush=True)
+
           # Then we need to actually have each of the personas perceive and
           # move. The movement for each of the personas comes in the form of
           # x y coordinates where the persona will move towards. e.g., (50, 34)
