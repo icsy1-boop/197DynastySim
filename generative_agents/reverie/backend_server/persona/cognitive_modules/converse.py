@@ -173,12 +173,44 @@ def agent_chat_v2(maze, init_persona, target_persona):
   return curr_chat
 
 
+def _salient_memories(persona, k=5, window_hours=120):
+  """The agent's genuine top-of-mind: their most poignant RECENT memories,
+  independent of who they're talking to. This is the substrate that lets anger
+  (or loyalty) emerge naturally in conversation — a resident carrying a fresh
+  poignancy-9 'ghost project SCANDAL' memory brings it up unprompted, while an
+  insider carries defensive ones. Without this, the conversation only retrieves
+  memories matching the partner's NAME, so world grievances stay buried.
+  Returns a list of description strings (highest poignancy first)."""
+  curr = getattr(persona.scratch, "curr_time", None)
+  nodes = list(persona.a_mem.seq_event) + list(persona.a_mem.seq_thought)
+  recent = []
+  for n in nodes:
+    if curr is not None and n.created is not None:
+      if (curr - n.created).total_seconds() > window_hours * 3600:
+        continue
+    recent.append(n)
+  # Strongest first; break ties by most recent. Skip idle filler + dedupe.
+  recent.sort(key=lambda n: (n.poignancy, n.created or 0), reverse=True)
+  out, seen = [], set()
+  for n in recent:
+    desc = (n.description or "").strip()
+    if not desc or "idle" in (n.embedding_key or "") or desc in seen:
+      continue
+    seen.add(desc)
+    out.append(desc)
+    if len(out) >= k:
+      break
+  return out
+
+
 def agent_chat_v3(maze, init_persona, target_persona):
   # One-shot conversation: generate the ENTIRE back-and-forth in a single LLM
   # call, vs agent_chat_v2's up-to-(2*_CONVO_MAX_TURNS) serial utterance calls.
   # Endpoints are fast and VM B is idle, so the per-step bottleneck is the serial
   # depth of conversation turns; collapsing them to one call is the main lever.
-  # Still grounded by a per-persona relationship summary + one memory retrieval.
+  # Grounded by a per-persona relationship summary, a partner-keyed memory
+  # retrieval, AND each speaker's salient top-of-mind memories so their genuine
+  # feelings (grievance, anger, loyalty) emerge instead of default pleasantries.
   curr_context = (f"{init_persona.scratch.name} "
               f"was {init_persona.scratch.act_description} "
               f"when {init_persona.scratch.name} "
@@ -192,10 +224,14 @@ def agent_chat_v3(maze, init_persona, target_persona):
   retrieved_target = new_retrieve(target_persona, [f"{init_persona.scratch.name}"], 50)
   rel_target = generate_summarize_agent_relationship(target_persona, init_persona, retrieved_target)
 
+  salient_init = _salient_memories(init_persona)
+  salient_target = _salient_memories(target_persona)
+
   convo = run_gpt_generate_whole_chat(
       maze, init_persona, target_persona,
       retrieved_init, retrieved_target, rel_init, rel_target,
-      curr_context, max_turns=_CONVO_MAX_TURNS)
+      curr_context, max_turns=_CONVO_MAX_TURNS,
+      salient_init=salient_init, salient_target=salient_target)
   return convo
 
 

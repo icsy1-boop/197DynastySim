@@ -2909,17 +2909,22 @@ def _parse_whole_chat(raw, name_a, name_b, max_turns):
 def run_gpt_generate_whole_chat(maze, init_persona, target_persona,
                                 retrieved_init, retrieved_target,
                                 rel_init, rel_target, curr_context,
-                                max_turns=4, verbose=False):
+                                max_turns=4, verbose=False,
+                                salient_init=None, salient_target=None):
   """One-shot conversation generator: produce the ENTIRE back-and-forth in a
   single LLM call instead of one call per utterance (agent_chat_v2 made up to
   2*max_turns serial calls). Grounded in each persona's identity, relationship
-  summary, and up-front retrieved memories. Returns [[speaker_name, utt], ...]."""
+  summary, partner-keyed retrieved memories, AND their salient top-of-mind
+  memories (so genuine feelings surface). Returns [[speaker_name, utt], ...]."""
   def mem_str(retrieved):
     s = ""
     for key, vals in retrieved.items():
       for v in vals:
         s += f"- {v.description}\n"
     return s.strip() or "(no specific memories)"
+
+  def salient_str(lst):
+    return "\n".join(f"- {d}" for d in (lst or [])) or "(nothing pressing)"
 
   curr_sector = f"{maze.access_tile(init_persona.scratch.curr_tile)['sector']}"
   curr_arena  = f"{maze.access_tile(init_persona.scratch.curr_tile)['arena']}"
@@ -2928,19 +2933,26 @@ def run_gpt_generate_whole_chat(maze, init_persona, target_persona,
   a = init_persona.scratch.name
   b = target_persona.scratch.name
   prompt = (
-    f"Two people meet and have a short, natural conversation.\n\n"
+    f"Two people meet and talk. Write how they would really speak.\n\n"
     f"--- {a} ---\n{init_persona.scratch.get_str_iss()}\n"
     f"How {a} sees {b}: {rel_init}\n"
+    f"On {a}'s mind lately:\n{salient_str(salient_init)}\n"
     f"What {a} recalls relevant to {b}:\n{mem_str(retrieved_init)}\n\n"
     f"--- {b} ---\n{target_persona.scratch.get_str_iss()}\n"
     f"How {b} sees {a}: {rel_target}\n"
+    f"On {b}'s mind lately:\n{salient_str(salient_target)}\n"
     f"What {b} recalls relevant to {a}:\n{mem_str(retrieved_target)}\n\n"
     f"Context: {curr_context}\n"
     f"They are at {location}.\n\n"
     f"Write their full conversation. {a} speaks first, then they alternate "
-    f"strictly. Keep it realistic and specific to who they are and what they "
-    f"recall. At most {max_turns} turns each (up to {max_turns*2} lines total); "
-    f"end naturally sooner if it has run its course.\n"
+    f"strictly. Speak the way these two genuinely would given who they are and "
+    f"what is on their mind. If something weighing on them is relevant "
+    f"(corruption, scandals, hardship, broken services, distrust of officials), "
+    f"let their real feelings show — frustration or anger for those hurt by it, "
+    f"defensiveness or dismissal for those who benefit. Don't force politeness; "
+    f"don't invent facts beyond what they know. At most {max_turns} turns each "
+    f"(up to {max_turns*2} lines total); end naturally sooner if it has run its "
+    f"course.\n"
     f"Output ONLY the dialogue, one line per turn, in exactly this format:\n"
     f"{a}: <what they say>\n{b}: <what they say>\n"
     f"Write nothing except these lines."
