@@ -29,6 +29,7 @@ urlpatterns = [
     re_path(r'^persona_state_json/(?P<sim_code>[\w-]+)/(?P<persona_name>[\w-]+)/$', translator_views.persona_state_json, name='persona_state_json'),
     re_path(r'^process_environment/$', translator_views.process_environment, name='process_environment'),
     re_path(r'^update_environment/$', translator_views.update_environment, name='update_environment'),
+    re_path(r'^sim_metrics/$', translator_views.sim_metrics, name='sim_metrics'),
     re_path(r'^path_tester/$', translator_views.path_tester, name='path_tester'),
     re_path(r'^path_tester_update/$', translator_views.path_tester_update, name='path_tester_update'),
     path('admin/', admin.site.urls),

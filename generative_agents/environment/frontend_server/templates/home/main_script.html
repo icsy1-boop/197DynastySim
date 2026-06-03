@@ -585,7 +585,8 @@
 	      let _sl = document.getElementById("step_slider");
 	      if (_sl && document.activeElement !== _sl) { if (step > +_sl.max) _sl.max = step; _sl.value = step; }
 	      let _si = document.getElementById("step_input");
-	      if (_si && document.activeElement !== _si) _si.placeholder = step; }
+	      if (_si && document.activeElement !== _si) _si.placeholder = step;
+	      if (step !== dash_last) { dash_last = step; fetchDashboard(step); } }
 
 	    // Update action-description panel and pronunciatio labels immediately.
 	    for (let i = 0; i < Object.keys(personas).length; i++) {
@@ -873,6 +874,7 @@
 	    });
 	    document.getElementById("game-time-content").innerHTML = data["meta"]["curr_time"];
 	    var _se = document.getElementById("game-step-content"); if (_se) _se.innerHTML = "step " + n;
+	    dash_last = n; fetchDashboard(n);
 	    // Resume forward playback starting at the next step.
 	    execute_movement = data;
 	    step = n + 1;
@@ -901,6 +903,104 @@
 	  if (next) next.addEventListener("click", () => jumpToStep(cur() + 1));
 	  if (sl) sl.addEventListener("change", () => jumpToStep(sl.value));
 	})();
+
+	// ===================================================================
+	// DASHBOARD: dynamic sim-state metrics + election news
+	// Polls {% url 'sim_metrics' %} once per step and renders the panel.
+	// Only DYNAMIC factors are shown; the formula behind each is displayed.
+	// ===================================================================
+	(function(){
+	  let toggle = document.getElementById("dash_toggle");
+	  let panel  = document.getElementById("dash_panel");
+	  if (toggle && panel) toggle.addEventListener("click", () => panel.classList.toggle("hidden"));
+	})();
+
+	// label, the world_metrics keys, formula, and polarity (does HIGH = bad?).
+	let DASH_METRICS = [
+	  {key:"corruption_index", tkey:null, label:"Corruption Index", bad:true,
+	   formula:"Σ(wᵣₒₗₑ·corrupt)/Σ|w| + dynasty + event  → clamp[0,1]"},
+	  {key:"dynasty_bonus", tkey:null, label:"Dynasty Bonus", bad:true,
+	   formula:"Σ over families with ≥2 in office: (count−1)×0.05"},
+	  {key:"event_bonus", tkey:null, label:"Event Bonus", bad:true,
+	   formula:"accumulated witnessed-corruption events (cap 0.5)"},
+	  {key:"welfare_score", tkey:"welfare_target", label:"Welfare", bad:false,
+	   formula:"w += 0.08·(target − w);  target = base·(1 − 0.7·corruption)"},
+	  {key:"unrest", tkey:"unrest_target", label:"Unrest", bad:true,
+	   formula:"u += 0.10·(target − u);  target = 0.6·corr + 0.4·(1−welfare) − 0.1"},
+	];
+
+	function dashBar(val, bad) {
+	  let pct = Math.max(0, Math.min(100, (val||0)*100));
+	  // bad metrics: green→red as they rise; good metrics: red→green as they rise.
+	  let good = bad ? (1-(val||0)) : (val||0);
+	  let hue = Math.round(good * 120); // 0=red .. 120=green
+	  return `<div class="h-1.5 rounded bg-slate-200 overflow-hidden">
+	    <div class="h-full" style="width:${pct}%;background:hsl(${hue},70%,45%)"></div></div>`;
+	}
+
+	let dash_last = -999;
+	function fetchDashboard(step) {
+	  let xo = new XMLHttpRequest();
+	  xo.overrideMimeType("application/json");
+	  xo.open('POST', "{% url 'sim_metrics' %}", true);
+	  xo.addEventListener("load", function() {
+	    if (this.readyState !== 4 || xo.status !== 200) return;
+	    let d;
+	    try { d = JSON.parse(xo.responseText); } catch(e) { return; }
+	    renderDashboard(d);
+	  });
+	  xo.addEventListener("error", function(){});
+	  xo.send(JSON.stringify({"step": step, "sim_code": sim_code}));
+	}
+
+	function renderDashboard(d) {
+	  let se = document.getElementById("dash_step");
+	  if (se) se.innerHTML = d.step >= 0 ? ("step " + d.step) : "";
+
+	  let host = document.getElementById("dash_metrics");
+	  if (host) {
+	    let html = "";
+	    DASH_METRICS.forEach(m => {
+	      let v = d[m.key];
+	      if (v === null || v === undefined) return;
+	      let tgt = m.tkey != null ? d[m.tkey] : null;
+	      let tgtStr = (tgt !== null && tgt !== undefined)
+	        ? `<span class="text-slate-400">→ ${(+tgt).toFixed(2)}</span>` : "";
+	      html += `<div>
+	        <div class="flex items-baseline justify-between text-[13px]">
+	          <span class="font-medium text-ink">${m.label}</span>
+	          <span class="font-mono text-ink">${(+v).toFixed(3)} ${tgtStr}</span>
+	        </div>
+	        ${dashBar(v, m.bad)}
+	        <div class="text-[10px] font-mono text-slate-400 mt-0.5 break-words">${m.formula}</div>
+	      </div>`;
+	    });
+	    host.innerHTML = html || `<div class="text-xs text-slate-400">no metrics for this step</div>`;
+	  }
+
+	  // Election countdown (only if the run persisted election_step).
+	  let el = document.getElementById("dash_election");
+	  if (el) {
+	    if (d.election_step != null && d.step >= 0 && d.election_step > d.step) {
+	      let n = d.election_step - d.step;
+	      el.innerHTML = `Election in ${n} steps (~${(n/24).toFixed(1)} sim-days)`;
+	    } else if (d.election_step != null && d.step >= d.election_step) {
+	      el.innerHTML = `Election has occurred (step ${d.election_step})`;
+	    } else { el.innerHTML = ""; }
+	  }
+
+	  // <election news>: journalist surveys (with %) + protest flashes.
+	  let news = document.getElementById("dash_news");
+	  if (news) {
+	    let ev = d.recent_events || [];
+	    if (ev.length === 0) {
+	      news.innerHTML = `<div class="text-xs text-slate-400">No election news yet.</div>`;
+	    } else {
+	      news.innerHTML = ev.slice().reverse().map(t =>
+	        `<div class="border-l-2 border-indigo-300 pl-2">${String(t)}</div>`).join("");
+	    }
+	  }
+	}
 </script>
 
 

@@ -248,6 +248,7 @@ class ReverieServer:
     # Persist integrated world metrics (welfare/unrest/corruption/event_bonus)
     # per-sim so the feedback loop accumulates across reboots.
     self._world_metrics["event_bonus"] = self._corruption_event_bonus
+    self._world_metrics["election_step"] = _ELECTION_STEP
     save_world_metrics(self._metrics_dir, self._world_metrics)
 
     # Save the personas.

@@ -365,14 +365,73 @@ def update_environment(request):
 
   response_data = {"<step>": -1}
   if (check_if_file_exists(f"storage/{sim_code}/movement/{step}.json")):
-    with open(f"storage/{sim_code}/movement/{step}.json") as json_file: 
+    with open(f"storage/{sim_code}/movement/{step}.json") as json_file:
       response_data = json.load(json_file)
       response_data["<step>"] = step
 
   return JsonResponse(response_data)
 
 
-def path_tester_update(request): 
+def sim_metrics(request):
+  """
+  <BACKEND to FRONTEND> Dynamic world-state metrics for the dashboard panel.
+
+  Reads the per-sim integrated world metrics (corruption/welfare/unrest/dynasty,
+  written by barangay_mechanics.log_corruption_step) plus the latest election
+  news/survey text (world_metrics["recent_events"]). When a step is supplied and
+  the per-step corruption_log.csv has a row at or before it, the numeric metrics
+  are taken from that row so scrubbing the replay shows the state AT that step;
+  otherwise the current live world_metrics values are returned.
+  Only DYNAMIC factors are returned — static constants live in the formulas the
+  frontend renders, not as standalone stats.
+  """
+  data = json.loads(request.body)
+  sim_code = data["sim_code"]
+  step = int(data.get("step", -1))
+
+  base = f"storage/{sim_code}/reverie"
+  wm = {}
+  if check_if_file_exists(f"{base}/world_metrics.json"):
+    with open(f"{base}/world_metrics.json") as f:
+      wm = json.load(f)
+
+  # Step-accurate numeric metrics from the per-step log when scrubbing.
+  hist = None
+  clog = f"{base}/corruption_log.csv"
+  if step >= 0 and check_if_file_exists(clog):
+    try:
+      import csv as _csv
+      with open(clog) as f:
+        rows = list(_csv.DictReader(f))
+      below = [r for r in rows if r.get("step", "").isdigit() and int(r["step"]) <= step]
+      if below:
+        hist = below[-1]
+    except Exception:
+      hist = None
+
+  def pick(hist_key, wm_key):
+    if hist is not None and hist.get(hist_key) not in (None, ""):
+      try: return float(hist[hist_key])
+      except (TypeError, ValueError): pass
+    return wm.get(wm_key)
+
+  out = {
+    "step": step,
+    "corruption_index": pick("corruption_index", "corruption_index"),
+    "dynasty_bonus":    pick("dynasty_bonus", "dynasty_bonus"),
+    "welfare_score":    pick("welfare", "welfare_score"),
+    "unrest":           pick("unrest", "unrest"),
+    # targets / event_bonus have no per-step column; live values only
+    "welfare_target":   wm.get("welfare_target"),
+    "unrest_target":    wm.get("unrest_target"),
+    "event_bonus":      wm.get("event_bonus"),
+    "election_step":    wm.get("election_step"),
+    "recent_events":    wm.get("recent_events", []),
+  }
+  return JsonResponse(out)
+
+
+def path_tester_update(request):
   """
   Processing the path and saving it to path_tester_env.json temp storage for 
   conducting the path tester. 
