@@ -343,7 +343,8 @@ def generate_convo(maze, init_persona, target_persona):
 
   # convo = run_gpt_prompt_create_conversation(init_persona, target_persona, curr_loc)[0]
   # convo = agent_chat_v1(maze, init_persona, target_persona)
-  convo = agent_chat_v2(maze, init_persona, target_persona)
+  # convo = agent_chat_v2(maze, init_persona, target_persona)  # iterative: up to 2*N serial LLM calls
+  convo = agent_chat_v3(maze, init_persona, target_persona)  # one-shot: 1 LLM call for the whole convo
   all_utt = ""
 
   for row in convo: 

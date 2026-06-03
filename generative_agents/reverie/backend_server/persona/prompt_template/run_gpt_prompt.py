@@ -2879,7 +2879,79 @@ def extract_first_json_dict(data_str):
         return None
 
 
-def run_gpt_generate_iterative_chat_utt(maze, init_persona, target_persona, retrieved, curr_context, curr_chat, test_input=None, verbose=False): 
+def _parse_whole_chat(raw, name_a, name_b, max_turns):
+  """Parse a one-shot 'Name: utterance' transcript into [[speaker, utt], ...].
+  Tolerates bullet/bold/role decorations on the speaker label and clamps speaker
+  names to the two known participants."""
+  if not raw or raw == "ChatGPT ERROR":
+    return [[name_a, "..."]]
+  names = {name_a.lower(): name_a, name_b.lower(): name_b}
+  ret = []
+  for line in raw.split("\n"):
+    line = line.strip()
+    if not line or ":" not in line:
+      continue
+    spk, _, utt = line.partition(":")
+    spk = spk.strip().strip("-*# ").lower()
+    utt = utt.strip().strip('"')
+    canon = names.get(spk)
+    if not canon:
+      for k, v in names.items():
+        if spk.startswith(k) or k in spk:
+          canon = v; break
+    if canon and utt:
+      ret.append([canon, utt])
+    if len(ret) >= max_turns * 2:
+      break
+  return ret or [[name_a, "..."]]
+
+
+def run_gpt_generate_whole_chat(maze, init_persona, target_persona,
+                                retrieved_init, retrieved_target,
+                                rel_init, rel_target, curr_context,
+                                max_turns=4, verbose=False):
+  """One-shot conversation generator: produce the ENTIRE back-and-forth in a
+  single LLM call instead of one call per utterance (agent_chat_v2 made up to
+  2*max_turns serial calls). Grounded in each persona's identity, relationship
+  summary, and up-front retrieved memories. Returns [[speaker_name, utt], ...]."""
+  def mem_str(retrieved):
+    s = ""
+    for key, vals in retrieved.items():
+      for v in vals:
+        s += f"- {v.description}\n"
+    return s.strip() or "(no specific memories)"
+
+  curr_sector = f"{maze.access_tile(init_persona.scratch.curr_tile)['sector']}"
+  curr_arena  = f"{maze.access_tile(init_persona.scratch.curr_tile)['arena']}"
+  location = f"{curr_arena} in {curr_sector}"
+
+  a = init_persona.scratch.name
+  b = target_persona.scratch.name
+  prompt = (
+    f"Two people meet and have a short, natural conversation.\n\n"
+    f"--- {a} ---\n{init_persona.scratch.get_str_iss()}\n"
+    f"How {a} sees {b}: {rel_init}\n"
+    f"What {a} recalls relevant to {b}:\n{mem_str(retrieved_init)}\n\n"
+    f"--- {b} ---\n{target_persona.scratch.get_str_iss()}\n"
+    f"How {b} sees {a}: {rel_target}\n"
+    f"What {b} recalls relevant to {a}:\n{mem_str(retrieved_target)}\n\n"
+    f"Context: {curr_context}\n"
+    f"They are at {location}.\n\n"
+    f"Write their full conversation. {a} speaks first, then they alternate "
+    f"strictly. Keep it realistic and specific to who they are and what they "
+    f"recall. At most {max_turns} turns each (up to {max_turns*2} lines total); "
+    f"end naturally sooner if it has run its course.\n"
+    f"Output ONLY the dialogue, one line per turn, in exactly this format:\n"
+    f"{a}: <what they say>\n{b}: <what they say>\n"
+    f"Write nothing except these lines."
+  )
+  if verbose:
+    print(prompt)
+  raw = ChatGPT_request(prompt)
+  return _parse_whole_chat(raw, a, b, max_turns)
+
+
+def run_gpt_generate_iterative_chat_utt(maze, init_persona, target_persona, retrieved, curr_context, curr_chat, test_input=None, verbose=False):
   def create_prompt_input(maze, init_persona, target_persona, retrieved, curr_context, curr_chat, test_input=None):
     persona = init_persona
     prev_convo_insert = "\n"

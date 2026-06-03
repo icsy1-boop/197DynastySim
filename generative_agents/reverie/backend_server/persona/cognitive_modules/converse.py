@@ -173,6 +173,32 @@ def agent_chat_v2(maze, init_persona, target_persona):
   return curr_chat
 
 
+def agent_chat_v3(maze, init_persona, target_persona):
+  # One-shot conversation: generate the ENTIRE back-and-forth in a single LLM
+  # call, vs agent_chat_v2's up-to-(2*_CONVO_MAX_TURNS) serial utterance calls.
+  # Endpoints are fast and VM B is idle, so the per-step bottleneck is the serial
+  # depth of conversation turns; collapsing them to one call is the main lever.
+  # Still grounded by a per-persona relationship summary + one memory retrieval.
+  curr_context = (f"{init_persona.scratch.name} "
+              f"was {init_persona.scratch.act_description} "
+              f"when {init_persona.scratch.name} "
+              f"saw {target_persona.scratch.name} "
+              f"in the middle of {target_persona.scratch.act_description}. "
+              f"{init_persona.scratch.name} initiates a conversation with "
+              f"{target_persona.scratch.name}.")
+
+  retrieved_init = new_retrieve(init_persona, [f"{target_persona.scratch.name}"], 50)
+  rel_init = generate_summarize_agent_relationship(init_persona, target_persona, retrieved_init)
+  retrieved_target = new_retrieve(target_persona, [f"{init_persona.scratch.name}"], 50)
+  rel_target = generate_summarize_agent_relationship(target_persona, init_persona, retrieved_target)
+
+  convo = run_gpt_generate_whole_chat(
+      maze, init_persona, target_persona,
+      retrieved_init, retrieved_target, rel_init, rel_target,
+      curr_context, max_turns=_CONVO_MAX_TURNS)
+  return convo
+
+
 
 
 
