@@ -766,7 +766,7 @@ _HIGH_PRIORITY_KW = ["work", "office", "school", "class", "teach", "duty",
     "patrol", "meeting", "council", "session", "budget", "audit", "inspect",
     "procure", "treasury", "clinic", "patient", "factory", "construction",
     "shift", "going to", "heading to", "commut", "report to", "attend",
-    "on the way", "walking to", "traveling", "travelling"]
+    "on the way", "walking to", "traveling", "travelling", "protest", "rally"]
 _LOW_PRIORITY_KW = ["relax", "rest", "idle", "sleep", "eat", "lunch", "dinner",
     "breakfast", "leisure", "watch", "hang", "stroll", "free time", "break",
     "chatting", "talking", "at home"]
