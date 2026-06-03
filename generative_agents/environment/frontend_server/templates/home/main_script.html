@@ -139,6 +139,11 @@
 	// too slow for long paths.
 	let ms_per_tile = 100;
 
+	// <playback_speed> -- user-controllable replay speed multiplier. 1 = normal.
+	// Higher = faster: walk tween duration and the per-line conversation hold are
+	// both DIVIDED by it. Wired to the speed control in the HUD (home.html).
+	let playback_speed = 1;
+
 	// <timer_max> determines how frequently our update function will query the
 	// frontend server. If it's higher, we wait longer cycles.
 	let timer_max = 0;
@@ -575,6 +580,12 @@
 	    // Phaser tween chains, then move to the "converse" phase once every
 	    // persona has finished moving.
 	    document.getElementById("game-time-content").innerHTML = execute_movement["meta"]["curr_time"];
+	    { let _se = document.getElementById("game-step-content");
+	      if (_se) _se.innerHTML = "step " + step;
+	      let _sl = document.getElementById("step_slider");
+	      if (_sl && document.activeElement !== _sl) { if (step > +_sl.max) _sl.max = step; _sl.value = step; }
+	      let _si = document.getElementById("step_input");
+	      if (_si && document.activeElement !== _si) _si.placeholder = step; }
 
 	    // Update action-description panel and pronunciatio labels immediately.
 	    for (let i = 0; i < Object.keys(personas).length; i++) {
@@ -687,7 +698,7 @@
 	            targets: curr_persona,
 	            x: target_x,
 	            y: target_y,
-	            duration: ms_per_tile,
+	            duration: ms_per_tile / playback_speed,
 	            ease: 'Linear',
 	            onUpdate: () => {
 	              let dx = target_x - curr_persona.x;
@@ -812,7 +823,7 @@
 	    }
 
 	    convo_frame_counter++;
-	    if (convo_frame_counter >= convo_frames_per_line) {
+	    if (convo_frame_counter >= convo_frames_per_line / playback_speed) {
 	      convo_frame_counter = 0;
 	      convo_index++;
 	    }
@@ -822,6 +833,74 @@
 	// Control button binders
 	var play_button=document.getElementById("play_button");
 	var pause_button=document.getElementById("pause_button");
+
+	// ---- Playback speed control ----
+	(function(){
+	  let sel = document.getElementById("speed_select");
+	  if (sel) sel.addEventListener("change", function(){
+	    playback_speed = parseFloat(this.value) || 1;
+	  });
+	})();
+
+	// ---- Rewind / jump to an arbitrary step ----
+	// Fetches movement[n] from the backend, teleports every persona to that step's
+	// destination tiles, then resumes forward playback from n+1. Only steps the
+	// backend has already produced are jumpable (older or current); future steps
+	// not yet computed return <step>:-1 and are ignored.
+	function jumpToStep(n) {
+	  n = parseInt(n);
+	  if (isNaN(n) || n < 0) return;
+	  var xobj = new XMLHttpRequest();
+	  xobj.overrideMimeType("application/json");
+	  xobj.open('POST', "{% url 'update_environment' %}", true);
+	  xobj.addEventListener("load", function() {
+	    if (this.readyState !== 4 || xobj.status !== 200) return;
+	    var data = JSON.parse(xobj.responseText);
+	    if (data["<step>"] != n) { console.warn("step " + n + " not available yet"); return; }
+	    // Stop any in-flight animation/conversation for the current step.
+	    try { game.scene.scenes.forEach(s => s.tweens && s.tweens.killAll()); } catch(e) {}
+	    Object.keys(personas).forEach(name => {
+	      var pd = data["persona"][name];
+	      if (!pd) return;
+	      var dest = pd["movement"];
+	      personas[name].setPosition(dest[0] * tile_width, dest[1] * tile_width);
+	      personas[name].anims && personas[name].anims.stop();
+	      pronunciatios[name].x = personas[name].x - 6;
+	      pronunciatios[name].y = personas[name].y - 42 - 32;
+	      persona_tile_pos[name] = [dest[0], dest[1]];
+	      persona_animating[name] = false;
+	      clearBubble(name);
+	    });
+	    document.getElementById("game-time-content").innerHTML = data["meta"]["curr_time"];
+	    var _se = document.getElementById("game-step-content"); if (_se) _se.innerHTML = "step " + n;
+	    // Resume forward playback starting at the next step.
+	    execute_movement = data;
+	    step = n + 1;
+	    phase = "process";
+	    convo_built = false;
+	    convo_index = 0;
+	    convo_frame_counter = 0;
+	    timer = 0;
+	    update_inflight = false;
+	  });
+	  xobj.addEventListener("error", function(){});
+	  xobj.send(JSON.stringify({"step": n, "sim_code": sim_code }));
+	}
+
+	(function(){
+	  let inp  = document.getElementById("step_input");
+	  let go   = document.getElementById("step_go");
+	  let prev = document.getElementById("step_prev");
+	  let next = document.getElementById("step_next");
+	  let sl   = document.getElementById("step_slider");
+	  // "current shown step" is (step - 1) once the loop has executed at least once.
+	  let cur = () => Math.max(0, step - 1);
+	  if (go && inp) go.addEventListener("click", () => { if (inp.value !== "") jumpToStep(inp.value); });
+	  if (inp) inp.addEventListener("keydown", e => { if (e.key === "Enter" && inp.value !== "") jumpToStep(inp.value); });
+	  if (prev) prev.addEventListener("click", () => jumpToStep(cur() - 1));
+	  if (next) next.addEventListener("click", () => jumpToStep(cur() + 1));
+	  if (sl) sl.addEventListener("change", () => jumpToStep(sl.value));
+	})();
 </script>
 
 

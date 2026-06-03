@@ -36,10 +36,13 @@
 <!-- ==================================================================== -->
 <div class="fixed bottom-4 left-4 z-40">
 	<div class="bg-white/95 backdrop-blur border border-slate-200 rounded-2xl shadow-xl px-5 py-4 min-w-[16rem]">
-		<div class="text-xs uppercase tracking-wide text-slate-400 font-semibold">Current Time</div>
+		<div class="flex items-baseline justify-between gap-3">
+			<div class="text-xs uppercase tracking-wide text-slate-400 font-semibold">Current Time</div>
+			<div id="game-step-content" class="text-xs font-mono text-slate-400">step &mdash;</div>
+		</div>
 		<div id="game-time-content" class="text-lg font-semibold text-ink mt-0.5">&mdash;</div>
 
-		<div class="mt-3 flex gap-2 {% if mode == 'simulate' %}hidden{% endif %}">
+		<div class="mt-3 flex items-center gap-2 {% if mode == 'simulate' %}hidden{% endif %}">
 			<button id="play_button" type="button"
 							class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent text-white text-sm font-medium hover:bg-indigo-500 transition">
 				<svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
@@ -50,6 +53,34 @@
 				<svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
 				Pause
 			</button>
+			<label class="ml-auto flex items-center gap-1 text-xs text-slate-500">
+				Speed
+				<select id="speed_select"
+								class="rounded-md border border-slate-200 bg-white text-ink text-sm px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-accent">
+					<option value="0.25">0.25&times;</option>
+					<option value="0.5">0.5&times;</option>
+					<option value="1" selected>1&times;</option>
+					<option value="2">2&times;</option>
+					<option value="4">4&times;</option>
+					<option value="8">8&times;</option>
+				</select>
+			</label>
+		</div>
+
+		<!-- Rewind / jump-to-step (replay only) -->
+		<div class="mt-3 {% if mode == 'simulate' %}hidden{% endif %}">
+			<input id="step_slider" type="range" min="0" max="100" value="0"
+						 class="w-full accent-accent cursor-pointer" />
+			<div class="mt-2 flex items-center gap-1.5">
+				<button id="step_prev" type="button" title="Previous step"
+								class="px-2 py-1 rounded-md bg-slate-200 text-ink text-sm hover:bg-slate-300 transition">&#8249;</button>
+				<input id="step_input" type="number" min="0" placeholder="0"
+							 class="w-20 rounded-md border border-slate-200 bg-white text-ink text-sm px-2 py-1 focus:outline-none focus:ring-1 focus:ring-accent" />
+				<button id="step_go" type="button"
+								class="px-2.5 py-1 rounded-md bg-accent text-white text-sm font-medium hover:bg-indigo-500 transition">Go</button>
+				<button id="step_next" type="button" title="Next step"
+								class="px-2 py-1 rounded-md bg-slate-200 text-ink text-sm hover:bg-slate-300 transition">&#8250;</button>
+			</div>
 		</div>
 	</div>
 </div>
