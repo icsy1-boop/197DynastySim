@@ -49,6 +49,7 @@ from barangay_election import (run_election, poll_political_intentions,
                                announce_election, finalize_candidacy)
 from barangay_news import broadcast_news
 from barangay_corruption_events import step_corruption_events
+from barangay_governance_events import step_governance_events
 from barangay_unrest import step_unrest
 from barangay_survey import conduct_survey
 
@@ -67,6 +68,7 @@ _ANTIDYNASTY = os.environ.get("ANTIDYNASTY", "0") == "1"
 _MONTH = int(os.environ.get("ELECTION_MONTH", 720))   # announce lead / poll cadence
 _WEEK  = int(os.environ.get("ELECTION_WEEK", 168))    # weekly cadence (news/candidacy/survey)
 _CORRUPTION_INTERVAL = int(os.environ.get("CORRUPTION_INTERVAL", 48))  # ~2 sim-days
+_GOVERNANCE_INTERVAL = int(os.environ.get("GOVERNANCE_INTERVAL", 48))  # ~2 sim-days
 _PROTEST_INTERVAL = int(os.environ.get("PROTEST_INTERVAL", 72))        # ~3 sim-days
 # Output directory for corruption logs and CSV exports
 _BARANGAY_OUTPUT = os.path.abspath(
@@ -596,6 +598,27 @@ class ReverieServer:
                 self._world_metrics["corruption_index"] = min(1.0, _cur + _d)
             except Exception as _e:
               print(f"[CORRUPTION] tick failed: {_e}", flush=True)
+
+          # Good governance — the recovery path. Well-meaning officials (high
+          # integrity, low greed) deliver services and reforms: welfare rises,
+          # corruption falls (reform can pull event_bonus negative, below the
+          # trait/dynasty baseline), and residents who hear credit them (-> votes).
+          if (self.step > 0 and self.step % _GOVERNANCE_INTERVAL == 0
+              and self.barangay_agent_rows):
+            try:
+              _gn, _amp, _wd, _cd = step_governance_events(
+                  self.personas, self.barangay_agent_list, self.curr_time)
+              if _cd:  # negative: reform reduces accumulated corruption
+                self._corruption_event_bonus = max(
+                    -0.3, self._corruption_event_bonus + _cd)
+                self._world_metrics["event_bonus"] = self._corruption_event_bonus
+                _cur = self._world_metrics.get("corruption_index", 0.5)
+                self._world_metrics["corruption_index"] = max(0.0, _cur + _cd)
+              if _wd:  # immediate welfare lift from delivered services
+                _w = self._world_metrics.get("welfare_score", 0.5)
+                self._world_metrics["welfare_score"] = min(1.0, _w + _wd)
+            except Exception as _e:
+              print(f"[GOVERNANCE] tick failed: {_e}", flush=True)
 
           # Unrest-driven protests — when integrated unrest is high, residents
           # protest: anti-incumbent memories (-> votes) + a news flash. Closes
