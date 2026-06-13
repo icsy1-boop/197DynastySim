@@ -1,0 +1,15 @@
+{
+  "corruption_index": 0.5308708333333334,
+  "welfare_score": 0.34144188063175945,
+  "unrest": 0.4777642189422971,
+  "dynasty_bonus": 0.05,
+  "welfare_target": 0.30889812847700004,
+  "unrest_target": 0.48194574774729626,
+  "event_bonus": 0.06300000000000001,
+  "election_step": 192,
+  "recent_events": [
+    "Residents are protesting in the barangay over worsening public services and corruption. Anger at the current officials is rising and many are calling for change in the next election. Residents named Mark Salazar-Abad, Zenaida Salazar, Mark Santiago among those they hold responsible.",
+    "Election survey by Corazon Cruz-Reyes: based on interviews with 30 residents, Barangay Captain \u2014 Dante Salazar-Cojuangco 37%, Theresa Salazar-Bernal 10%, Mateo Gomez 7%; Mayor \u2014 Martin Salazar-Gregorio 47%, Melissa Cruz-Jacinto 13%, Teodoro Salazar-Domingo 7%.",
+    "Residents are protesting in the barangay over worsening public services and corruption. Anger at the current officials is rising and many are calling for change in the next election. Residents named Albert Santiago, Martin Salazar-Gregorio, Ricardo Salazar-Castro among those they hold responsible."
+  ]
+}
