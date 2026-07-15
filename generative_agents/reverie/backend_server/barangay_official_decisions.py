@@ -93,6 +93,15 @@ _INFLUENCE_TOKENS     = int(os.environ.get("INFLUENCE_TOKENS", 110))
 _PATRONAGE_RECIPIENTS = int(os.environ.get("PATRONAGE_RECIPIENTS", 30))
 _SPIN_SKEPTIC_MASS    = float(os.environ.get("SPIN_SKEPTIC_MASS", 6.0))
 
+# GRIEVANCE LOOP GAIN — scales the poignancy of lived-harm injections (victim
+# deprivation here; protest participation in barangay_unrest). 1.0 = calibrated
+# default; sweep against LOYALTY_GAIN to test loop-magnitude effects.
+_GRIEVANCE_GAIN = float(os.environ.get("GRIEVANCE_GAIN", 1.0))
+
+
+def _gpoig(base):
+    return max(1, min(9, round(base * _GRIEVANCE_GAIN)))
+
 
 def _trait(row, key, default):
     try:
@@ -346,16 +355,6 @@ def _spread_via_media(personas, rows, text, curr_time, kind, subject_name):
 #     needed") that feed name_trust and votes — while witnesses see vote-buying
 #     (corruption-classified) and watchdogs may expose it.
 
-def _dynasty_families(rows):
-    """family_id -> member count; a 'dynasty' = 2+ members in the population."""
-    fam = {}
-    for r in rows.values():
-        f = (r.get("family_id") or "").strip()
-        if f:
-            fam[f] = fam.get(f, 0) + 1
-    return {f for f, c in fam.items() if c >= 2}
-
-
 def _influence_prompt(name, role, fam, row, persona, steps_to_election):
     integ = _trait(row, "integrity", 0.6)
     greed = _trait(row, "greed", 0.4)
@@ -371,13 +370,14 @@ Your nature: integrity {integ:.2f}/1, greed {greed:.2f}/1, ambition {amb:.2f}/1.
 On your mind lately:
 {mem_block}
 Talk in the barangay is turning against you and your family; {elec}.
-You could quietly fight back:
+The family machine gives you real options — each is customary here, each works, each has its risks:
 - SPIN: push a favorable or discrediting story through your people and friendly radio (deny wrongdoing, smear the accusers)
-- PAY: have your people hand out cash and rice ("ayuda") in a poor neighborhood to buy goodwill and votes
+- PAY: send your people through a poor neighborhood with cash and rice ("ayuda") — expensive, but envelopes are remembered at the ballot box
+- MOBILIZE: send your liders door to door to remind those who owe the family (utang na loob) that the family is counting on them
 - NOTHING: lie low and ride it out
 True to your nature, your memories, and the risk of getting caught, answer EXACTLY:
-RESPONSE: SPIN or PAY or NOTHING
-LINE: the one-sentence story you spread (for SPIN), or the word cash (for PAY), or the word nothing"""
+RESPONSE: SPIN or PAY or MOBILIZE or NOTHING
+LINE: the one-sentence story you spread (for SPIN), or the word cash (PAY), or the word liders (MOBILIZE), or the word nothing"""
     )
 
 
@@ -395,7 +395,7 @@ def _influence_decide(name, persona, role, fam, row, steps_to_election):
         clear_force_tier()
     if not out or out == "ChatGPT ERROR":
         return "NOTHING", None
-    m = re.search(r"RESPONSE:\s*(SPIN|PAY|NOTHING)", out, re.I)
+    m = re.search(r"RESPONSE:\s*(SPIN|PAY|MOBILIZE|NOTHING)", out, re.I)
     if not m:
         return "NOTHING", None
     resp = m.group(1).upper()
@@ -403,17 +403,24 @@ def _influence_decide(name, persona, role, fam, row, steps_to_election):
     ml = re.search(r"LINE:\s*(.+)", out, re.I)
     if ml:
         line = ml.group(1).strip().strip('"').strip()
-        if line.lower() in ("nothing", "cash", ""):
+        if line.lower() in ("nothing", "cash", "liders", ""):
             line = None
     return resp, line
 
 
+_MOBILIZE_REACH = int(os.environ.get("MOBILIZE_REACH", 60))
+
+
 def step_dynasty_influence(personas, rows, watchdogs, curr_time, steps_to_election):
     """One influence tick for dynasty officials under fire (or campaigning).
+    The machine belongs to families that actually HOLD 2+ seats (live roles) —
+    in the anti-dynasty arm no family qualifies, so the counter-machinery
+    itself is part of the treatment difference, as it should be.
     Returns (n_spin, n_pay, n_countered, headlines)."""
     from barangay_mechanics import population_blame, name_trust, agent_memory_masses
+    from barangay_patronage import dynasty_seat_families
 
-    dynasties = _dynasty_families(rows)
+    dynasties = dynasty_seat_families(personas, rows)
     dyn_officials = [
         (n, p) for n, p in personas.items()
         if getattr(p.scratch, "role", rows.get(n, {}).get("role", "")) in OFFICIAL_ROLES
@@ -448,13 +455,42 @@ def step_dynasty_influence(personas, rows, watchdogs, curr_time, steps_to_electi
             except Exception:
                 decisions[n] = ("NOTHING", None)
 
-    n_spin = n_pay = n_countered = 0
+    n_spin = n_pay = n_mob = n_countered = 0
     headlines = []
     from barangay_news import media_access_level
 
     for _b, name, p in actors:
         resp, line = decisions.get(name, ("NOTHING", None))
         role = rows.get(name, {}).get("role", "official").replace("_", " ")
+        fam_id = (rows.get(name, {}).get("family_id") or "").strip()
+
+        if resp == "MOBILIZE":
+            # The liders make the rounds: everyone whose OWN memories already
+            # trust this official (clients, beneficiaries, kin) gets a
+            # loyalty-reminder — gratitude surfacing at the ballot box.
+            n_mob += 1
+            scores = []
+            for tn, tp in personas.items():
+                if tn == name:
+                    continue
+                t = name_trust(tp, [name], curr_time).get(name, 0.0)
+                if t > 0:
+                    scores.append((t, tn))
+            scores.sort(reverse=True)
+            reminded = 0
+            mob_text = (f"{name}'s liders came around reminding everyone what "
+                        f"the {fam_id} family has done for people here — the "
+                        f"family is counting on our support.")
+            _loy_gain = float(os.environ.get("LOYALTY_GAIN", 1.0))
+            _mob_poig = max(1, min(9, round(6 * _loy_gain)))
+            for _t, tn in scores[:_MOBILIZE_REACH]:
+                if _add_memory(personas[tn], mob_text, curr_time,
+                               poignancy=_mob_poig,
+                               s=name, p="mobilized", o="supporters",
+                               kw={"service", "loyalty", "election", name, fam_id}):
+                    reminded += 1
+            logger.info(f"[INFLUENCE] {name} mobilized {reminded} loyalists")
+            continue
 
         if resp == "SPIN":
             n_spin += 1
@@ -530,9 +566,9 @@ def step_dynasty_influence(personas, rows, watchdogs, curr_time, steps_to_electi
                                       "CORRUPT", name)
                     headlines.append(headline)
 
-    print(f"[INFLUENCE] {n_spin} spin, {n_pay} patronage, "
-          f"{len(actors) - n_spin - n_pay} lie-low of {len(actors)} dynasty "
-          f"officials ({n_countered} fact-checked/exposed)", flush=True)
+    print(f"[INFLUENCE] {n_spin} spin, {n_pay} patronage, {n_mob} mobilize, "
+          f"{len(actors) - n_spin - n_pay - n_mob} lie-low of {len(actors)} "
+          f"dynasty officials ({n_countered} fact-checked/exposed)", flush=True)
     return n_spin, n_pay, n_countered, headlines
 
 
@@ -599,7 +635,8 @@ def step_official_decisions(personas, agent_rows, curr_time,
             # GRIEVANCE (personal harm), not corruption (knowledge of it) —
             # the aggrieved/protest readout keys on grievance mass.
             for tn in affected:
-                _add_memory(personas[tn], victim_text, curr_time, poignancy=8,
+                _add_memory(personas[tn], victim_text, curr_time,
+                            poignancy=_gpoig(8),
                             s=name, p="deprived", o="residents",
                             kw={"grievance", "anger", name})
 

@@ -68,6 +68,7 @@ _MONTH = int(os.environ.get("ELECTION_MONTH", 720))   # announce lead / poll cad
 _WEEK  = int(os.environ.get("ELECTION_WEEK", 168))    # weekly cadence (news/candidacy/survey)
 _DECISION_INTERVAL = int(os.environ.get("DECISION_INTERVAL", 48))      # ~2 sim-days
 _PROTEST_INTERVAL = int(os.environ.get("PROTEST_INTERVAL", 72))        # ~3 sim-days
+_PATRONAGE_INTERVAL = int(os.environ.get("PATRONAGE_INTERVAL", 96))    # ~4 sim-days
 # Output directory for corruption logs and CSV exports
 _BARANGAY_OUTPUT = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "../../../output/barangay"))
@@ -206,6 +207,17 @@ class ReverieServer:
     import persona_md
     persona_md.set_md_dir(f"{sim_folder}/personas_md")
     persona_md.seed_md(self.personas, self.barangay_agent_rows)
+
+    # Dynasty client bases (utang na loob): one-time seeding for families
+    # holding 2+ seats (marker-file guarded — resumes don't re-seed).
+    if self.barangay_agent_rows:
+      try:
+        from barangay_patronage import seed_patronage
+        seed_patronage(self.personas, self.barangay_agent_list,
+                       self.curr_time, self._metrics_dir)
+      except Exception as _e:
+        print(f"[PATRONAGE] seeding failed: {_e}", flush=True)
+
     self._world_metrics = load_world_metrics(self._metrics_dir)
     # persistent corruption from active corruption events; restored from disk.
     self._corruption_event_bonus = float(self._world_metrics.get("event_bonus", 0.0))
@@ -606,6 +618,18 @@ class ReverieServer:
                 self._world_metrics["recent_events"] = _ev[-3:]
             except Exception as _e:
               print(f"[DECISION] tick failed: {_e}", flush=True)
+
+          # Dynasty clientelism tick: officials of families holding 2+ seats
+          # decide whether to spend on favors that renew their clients' utang
+          # na loob (loyalty decays with neglect, is renewed by favors).
+          if (self.step > 0 and self.step % _PATRONAGE_INTERVAL == 0
+              and self.barangay_agent_rows):
+            try:
+              from barangay_patronage import step_patronage
+              step_patronage(self.personas, self.barangay_agent_list,
+                             self.curr_time)
+            except Exception as _e:
+              print(f"[PATRONAGE] tick failed: {_e}", flush=True)
 
           # Unrest-driven protests — when integrated unrest is high, residents
           # protest: anti-incumbent memories (-> votes) + a news flash. Closes

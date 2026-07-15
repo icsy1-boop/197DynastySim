@@ -24,6 +24,9 @@ logger = logging.getLogger(__name__)
 # Tunables (env-overridable)
 _MIN_CROWD = int(os.environ.get("PROTEST_MIN_CROWD", 15))   # aggrieved needed to spark
 _AUDIENCE  = int(os.environ.get("PROTEST_AUDIENCE", 250))   # who hears about it
+# Grievance loop gain: scales protest-PARTICIPATION poignancy (lived harm).
+# Hearers stay at 5 deliberately — scaling awareness re-opens self-amplification.
+_GRIEVANCE_GAIN = float(os.environ.get("GRIEVANCE_GAIN", 1.0))
 # Physical rally: cap on how many marchers get the action override (perf guard),
 # the venue (must be a real arena in maze.address_tiles; <random> spreads the
 # crowd across its tiles), and how long they stay (minutes; 60 = one sim-step).
@@ -126,9 +129,10 @@ def step_unrest(personas, agent_rows, world_metrics, curr_time):
     all_names = list(personas.keys())
     hearers = set(random.sample(all_names, min(_AUDIENCE, len(all_names)))) - set(aggrieved)
     reached = 0
+    _part_poig = max(1, min(9, round(8 * _GRIEVANCE_GAIN)))
     for n in aggrieved:
         if _add_memory(personas[n], f"I joined the protest at the plaza. {text}",
-                       curr_time, poignancy=8,
+                       curr_time, poignancy=_part_poig,
                        s=n, p="protested against", o="officials",
                        kw={"protest", "unrest", "election", "grievance"}):
             reached += 1

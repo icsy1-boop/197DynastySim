@@ -531,17 +531,23 @@ def collect_votes(personas, candidates, agent_rows, curr_time):
     def vote_one(name, persona):
         row = rows_by_name.get(name, {})
         trust = name_trust(persona, all_candidate_names, curr_time)
+        try:
+            loyalty = float(row.get("family_loyalty", 0.5) or 0.5)
+        except (TypeError, ValueError):
+            loyalty = 0.5
         results = []
         for position, cnames in candidates.items():
             if not cnames:
                 continue
-            # Family loyalty: family member in candidate list → strong pull
+            # Family loyalty: family member in candidate list → strong pull,
+            # but only for voters whose OWN family_loyalty trait carries it —
+            # a low-loyalty relative votes their memories like anyone else.
             voter_fam = row.get("family_id", "")
             family_candidates = [
                 c for c in cnames
                 if rows_by_name.get(c, {}).get("family_id") == voter_fam and c != name
             ]
-            if family_candidates:
+            if family_candidates and loyalty >= 0.5:
                 fail_safe = family_candidates[0]
             else:
                 scored = sorted(((trust.get(c, 0.0), c) for c in cnames),
