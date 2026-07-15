@@ -1,0 +1,16 @@
+position,name,initial_role,re_elected,family_id
+mayor,Lorenzo Salazar-Bautista,disaster_officer,False,Salazar-Bautista
+vice_mayor,Isidro Gonzales,coa_auditor,False,Gonzales
+councilor,Anna Corpuz,contractor_owner,False,Corpuz
+councilor,Louise Cruz-Sy,lawyer,False,Cruz-Sy
+councilor,Nico Cruz-Serrano,clerk_office_worker,False,Cruz-Serrano
+councilor,Rosa Salazar-Navarro,skilled_tradesperson,False,Salazar-Navarro
+councilor,Zenaida Salazar,councilor,True,Salazar
+barangay_captain,Yohan Cruz-Enriquez,barangay_treasurer,False,Cruz-Enriquez
+barangay_kagawad,Albert Santiago,teacher,False,Santiago
+barangay_kagawad,Ana Yap,barangay_secretary,False,Yap
+barangay_kagawad,Bernardo Rizal,market_vendor,False,Rizal
+barangay_kagawad,Ligaya David,barangay_kagawad,True,David
+barangay_kagawad,Mario Cruz-Pena,barangay_kagawad,True,Cruz-Pena
+barangay_kagawad,Ulysses Salazar-Paredes,barangay_kagawad,True,Salazar-Paredes
+barangay_kagawad,Wilhelmina Cruz-Ferrer,unemployed_jobseeker,False,Cruz-Ferrer

@@ -1,0 +1,13 @@
+position,name,initial_role,re_elected,family_id
+mayor,Ulysses Salazar-Ilagan,elder_retiree,False,Salazar-Ilagan
+vice_mayor,Daniel Santiago,vice_mayor,True,Santiago
+councilor,Camille Salazar-Tan,unemployed_jobseeker,False,Salazar-Tan
+councilor,Luis David,civil_servant_admin,False,David
+barangay_captain,Antonio Santiago,councilor,False,Santiago
+barangay_kagawad,Hernando Cruz-Valdez,clerk_office_worker,False,Cruz-Valdez
+barangay_kagawad,Isidro Cruz-Soriano,barangay_kagawad,True,Cruz-Soriano
+barangay_kagawad,Ligaya David,barangay_kagawad,True,David
+barangay_kagawad,Mario Cruz-Pena,subcontractor,False,Cruz-Pena
+barangay_kagawad,Ulysses Salazar-Paredes,barangay_kagawad,True,Salazar-Paredes
+barangay_kagawad,Victor David,barangay_kagawad,True,David
+barangay_kagawad,Wilhelmina Cruz-Ferrer,unemployed_jobseeker,False,Cruz-Ferrer

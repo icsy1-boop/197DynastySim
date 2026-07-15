@@ -30,18 +30,23 @@ _AUDIENCE = int(os.environ.get("SURVEY_AUDIENCE", 300)) # who hears the publishe
 
 
 def _add_memory(persona, text, curr_time, poignancy, s, p, o, kw):
+    """Inject one memory; SKIP (never zero-vector) if embedding fails — a zero
+    vector would poison cosine retrieval for every later query."""
     try:
         from persona.prompt_template.gpt_structure import get_embedding
-        expiration = curr_time + datetime.timedelta(days=30)
         try:
             emb = get_embedding(text)
-        except Exception:
-            emb = [0.0] * 768
+        except Exception as e:
+            logger.warning(f"[SURVEY] embedding failed, memory skipped: {e}")
+            return False
+        expiration = curr_time + datetime.timedelta(days=30)
         persona.a_mem.add_thought(curr_time, expiration, s, p, o,
                                   text, set(kw), poignancy, (text, emb), [])
+        return True
     except Exception as e:
         logger.warning(f"[SURVEY] memory inject failed for "
                        f"{getattr(persona.scratch, 'name', '?')}: {e}")
+        return False
 
 
 def _is_journalist(name, persona, rows):
@@ -105,15 +110,21 @@ def conduct_survey(personas, agent_rows, declared_candidates, curr_time):
         cnames = candidates[pos]
         label = _POSITION_LABELS.get(pos, pos)
         tally = Counter()
+        undecided = 0
         for n, p in sample:
-            fail = cnames[0]
+            fail = random.choice(cnames)   # unbiased fail-safe (was cnames[0])
             try:
                 chosen, _ = _vote_for_position(p, cnames, label, curr_time, fail)
             except Exception:
                 chosen = fail
-            tally[chosen] += 1
+            if chosen == "ABSTAIN":
+                undecided += 1
+            else:
+                tally[chosen] += 1
         ranked = tally.most_common(3)
         frac = ", ".join(f"{nm} {round(100 * ct / total)}%" for nm, ct in ranked)
+        if undecided:
+            frac += f", undecided {round(100 * undecided / total)}%"
         lines.append(f"{label} — {frac}")
 
     text = (f"Election survey by {jname}: based on interviews with {total} residents, "

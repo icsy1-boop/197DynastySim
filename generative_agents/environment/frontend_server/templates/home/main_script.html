@@ -143,6 +143,18 @@
 	// Higher = faster: walk tween duration and the per-line conversation hold are
 	// both DIVIDED by it. Wired to the speed control in the HUD (home.html).
 	let playback_speed = 1;
+	// <simPaused> freezes the SIMULATION (phase advance, tweens, step fetch) while
+	// keeping the Phaser scene RUNNING so camera controls (wheel-zoom, drag, arrow
+	// keys) still work when paused. We no longer call scene.pause(), which would
+	// also kill input. See the play/pause buttons and the guard in update().
+	let simPaused = false;
+	// Scene reference captured in create(), used by the agent-lookup box (below)
+	// to pan the camera to a persona sprite from a DOM event handler.
+	let mapScene = null;
+	// When true, the converse phase only renders conversation bubbles for the
+	// conversation(s) the SELECTED agent takes part in; all other agents' chat
+	// bubbles are hidden. Wired to the "Only selected chat" toggle in the HUD.
+	let soloSelectedConvo = false;
 
 	// <timer_max> determines how frequently our update function will query the
 	// frontend server. If it's higher, we wait longer cycles.
@@ -362,6 +374,7 @@
 	  const camera = this.cameras.main;
 	  camera.setBounds(0, 0, map.widthInPixels, map.heightInPixels);
 	  camera.centerOn(2912, 3648);
+	  mapScene = this;   // captured for the agent-lookup camera pan (see focusAgent)
 	  cursors = this.input.keyboard.createCursorKeys();
 
 	  // Mousewheel zoom: scroll up = zoom in, scroll down = zoom out (0.2x – 3x).
@@ -502,19 +515,25 @@
 
 
 	function update(time, delta) {
-		// *** SETUP PLAY AND PAUSE BUTTON *** 
+		// *** LIVE PLAYBACK SPEED ***
+		// Scale ALL running tweens by the current playback_speed every frame.
+		// Phaser bakes a tween's duration at creation, so dividing the duration
+		// (the old approach) only took effect on the NEXT step. timeScale is
+		// applied continuously, so changing the HUD speed dropdown mid-glide
+		// speeds up / slows down the in-flight movement immediately.
+		this.tweens.timeScale = playback_speed;
+
+		// *** SETUP PLAY AND PAUSE BUTTON ***
+		// Pause freezes the sim by setting <simPaused> and pausing all tweens,
+		// but leaves the scene running so the camera stays interactive.
 		let play_context = this;
-		function game_resume() {  
-			play_context.scene.resume();
-		}  
 		play_button.onclick = function(){
-			game_resume();
+			simPaused = false;
+			play_context.tweens.resumeAll();
 		};
-		function game_pause() {  
-			play_context.scene.pause();
-		}  
 		pause_button.onclick = function(){
-			game_pause();
+			simPaused = true;
+			play_context.tweens.pauseAll();
 		};
 
 	  // *** MOVE CAMERA ***
@@ -528,6 +547,10 @@
 	  if (cursors.right.isDown) cam.scrollX += pan_step;
 	  if (cursors.up.isDown)    cam.scrollY -= pan_step;
 	  if (cursors.down.isDown)  cam.scrollY += pan_step;
+
+	  // When paused, keep the camera controls above live but FREEZE the sim:
+	  // do not advance phases, start/continue tweens, or fetch the next step.
+	  if (simPaused) return;
 
 	  // console.log("phase: " + phase + ", step: " + step);
 	  // *** MOVE PERSONAS ***
@@ -699,7 +722,7 @@
 	            targets: curr_persona,
 	            x: target_x,
 	            y: target_y,
-	            duration: ms_per_tile / playback_speed,
+	            duration: ms_per_tile,   // live speed via tweens.timeScale (see update top)
 	            ease: 'Linear',
 	            onUpdate: () => {
 	              let dx = target_x - curr_persona.x;
@@ -792,7 +815,9 @@
 
 	    // Nothing said this step, or every line has been shown: advance the step.
 	    if (max_len === 0 || convo_index >= max_len) {
-	      Object.keys(personas).forEach(n => { if (n !== active) clearBubble(n); });
+	      // Clear ALL bubbles (including the selected agent's) so none stay stuck
+	      // open after the step's conversations end.
+	      Object.keys(personas).forEach(n => clearBubble(n));
 	      phase = "process";
 	      step = step + 1;
 	      return;
@@ -801,18 +826,27 @@
 	    // At the start of each ~1s window, reveal the current line of every
 	    // conversation in its speaker's bubble (parallel playback).
 	    if (convo_frame_counter === 0) {
+	      // When soloing, render only the conversation(s) the selected agent is in.
+	      let visible_convos = conversation_queue;
+	      if (soloSelectedConvo && active) {
+	        visible_convos = conversation_queue.filter(
+	          turns => turns.some(t => t.speaker === active));
+	      }
 	      // Speakers active at this index — used so we don't clear a bubble we are
 	      // about to (re)write.
 	      let speaking = {};
-	      conversation_queue.forEach(turns => {
+	      visible_convos.forEach(turns => {
 	        if (convo_index < turns.length) speaking[turns[convo_index].speaker] = true;
 	      });
-	      // Clear bubbles of agents not speaking now (keep the selected agent's).
+	      let focusing = soloSelectedConvo && active;
+	      // Clear bubbles of agents not speaking at this line — including the
+	      // selected/hovered agent, so bubbles ALTERNATE (only the current speaker
+	      // shows) and none stay stuck open after that agent's turn is done.
 	      Object.keys(personas).forEach(n => {
-	        if (!speaking[n] && n !== active) clearBubble(n);
+	        if (!speaking[n]) clearBubble(n);
 	      });
-	      // Show each conversation's current line above its speaker.
-	      conversation_queue.forEach(turns => {
+	      // Show each visible conversation's current line above its speaker.
+	      visible_convos.forEach(turns => {
 	        if (convo_index >= turns.length) return;   // this convo already ended
 	        let turn = turns[convo_index];
 	        let sp = personas[turn.speaker];
@@ -820,6 +854,7 @@
 	        lbl.x = sp.x - 6;
 	        lbl.y = sp.y - 42 - 32;
 	        setBubbleLine(turn.speaker, turn.speaker, turn.text);
+	        if (focusing) setBubbleFull(turn.speaker, true);   // expand without hover
 	      });
 	    }
 
@@ -840,6 +875,67 @@
 	  let sel = document.getElementById("speed_select");
 	  if (sel) sel.addEventListener("change", function(){
 	    playback_speed = parseFloat(this.value) || 1;
+	  });
+	})();
+
+	// ---- Agent lookup: type/select a name -> pan camera + select them ----
+	// Frontend-only. Resolves the typed text against the live <personas> sprites
+	// (exact, then case-insensitive, then substring), pans the camera to the
+	// sprite's current pixel position, and opens its panel via selectPersona().
+	function focusAgent(raw) {
+	  let msg = document.getElementById("agent_search_msg");
+	  if (msg) msg.classList.add("hidden");
+	  if (!raw || !mapScene) return false;
+	  let q = raw.trim();
+	  let names = Object.keys(personas);
+	  let key = names.find(n => n === q)
+	         || names.find(n => n.toLowerCase() === q.toLowerCase())
+	         || names.find(n => n.toLowerCase().includes(q.toLowerCase()));
+	  if (!key || !personas[key]) {
+	    if (msg) msg.classList.remove("hidden");
+	    return false;
+	  }
+	  let sprite = personas[key];
+	  // Pan even while paused: the camera effect updates with the (still-running)
+	  // scene, independent of the simPaused sim-logic guard.
+	  mapScene.cameras.main.pan(sprite.x, sprite.y, 600, "Sine.easeInOut");
+	  if (typeof selectPersona === "function") selectPersona(key);
+	  return true;
+	}
+	(function(){
+	  let inp = document.getElementById("agent_search");
+	  let go  = document.getElementById("agent_go");
+	  let dl  = document.getElementById("agent_names_list");
+	  // Populate the datalist from the live persona set when the box is focused
+	  // (personas are created in create(), so we fill lazily/just-in-time).
+	  function fillList(){
+	    if (!dl) return;
+	    let names = Object.keys(personas).sort();
+	    if (dl.childElementCount === names.length) return;  // already current
+	    dl.innerHTML = names.map(n => "<option value=\"" + n.replace(/"/g,"&quot;") + "\">").join("");
+	  }
+	  if (inp) {
+	    inp.addEventListener("focus", fillList);
+	    inp.addEventListener("input", fillList);
+	    // Enter, or picking a datalist option (fires 'change'), jumps to the agent.
+	    inp.addEventListener("keydown", e => { if (e.key === "Enter") focusAgent(inp.value); });
+	    inp.addEventListener("change", () => { if (inp.value) focusAgent(inp.value); });
+	  }
+	  if (go && inp) go.addEventListener("click", () => focusAgent(inp.value));
+	})();
+
+	// ---- "Only selected agent's conversation" toggle ----
+	(function(){
+	  let cb = document.getElementById("solo_convo_toggle");
+	  if (!cb) return;
+	  cb.addEventListener("change", function(){
+	    soloSelectedConvo = this.checked;
+	    // Apply immediately: when turning on, hide every non-selected bubble now
+	    // (the converse phase otherwise only re-evaluates each ~1s line window).
+	    if (soloSelectedConvo) {
+	      let active = document.getElementById("persona_panel").getAttribute("data-active-persona");
+	      Object.keys(personas).forEach(n => { if (n !== active) clearBubble(n); });
+	    }
 	  });
 	})();
 
@@ -916,17 +1012,21 @@
 	})();
 
 	// label, the world_metrics keys, formula, and polarity (does HIGH = bad?).
+	// mem2 (Jul 2026): metrics are a READOUT of the population's memory stream —
+	// corr/gov/grv "mass" = poignancy×recency-weighted classified memories.
 	let DASH_METRICS = [
 	  {key:"corruption_index", tkey:null, label:"Corruption Index", bad:true,
-	   formula:"Σ(wᵣₒₗₑ·corrupt)/Σ|w| + dynasty + event  → clamp[0,1]"},
-	  {key:"dynasty_bonus", tkey:null, label:"Dynasty Bonus", bad:true,
-	   formula:"Σ over families with ≥2 in office: (count−1)×0.05"},
-	  {key:"event_bonus", tkey:null, label:"Event Bonus", bad:true,
-	   formula:"accumulated witnessed-corruption events (cap 0.5)"},
+	   formula:"corr_mass / (corr_mass + gov_mass) — reputation in memory, smoothed"},
+	  {key:"dynasty_bonus", tkey:null, label:"Dynasty Seat-Share", bad:true,
+	   formula:"diagnostic: Σ families with ≥2 seats: (count−1)×0.05 (not in corruption)"},
+	  {key:"event_bonus", tkey:null, label:"Event Bonus (legacy)", bad:true,
+	   formula:"pre-mem2 runs only: accumulated event deltas"},
 	  {key:"welfare_score", tkey:"welfare_target", label:"Welfare", bad:false,
-	   formula:"w += 0.08·(target − w);  target = base·(1 − 0.7·corruption)"},
+	   formula:"mean per-agent satisfaction: prior ± 0.25·(own gov − corr − grv balance)"},
 	  {key:"unrest", tkey:"unrest_target", label:"Unrest", bad:true,
-	   formula:"u += 0.10·(target − u);  target = 0.6·corr + 0.4·(1−welfare) − 0.1"},
+	   formula:"share of agents whose OWN grievance mass ≥ threshold (personally angry)"},
+	  {key:"aggrieved_share", tkey:null, label:"Aggrieved Share (raw)", bad:true,
+	   formula:"unsmoothed fraction of agents past the personal grievance threshold"},
 	];
 
 	function dashBar(val, bad) {
@@ -936,6 +1036,21 @@
 	  let hue = Math.round(good * 120); // 0=red .. 120=green
 	  return `<div class="h-1.5 rounded bg-slate-200 overflow-hidden">
 	    <div class="h-full" style="width:${pct}%;background:hsl(${hue},70%,45%)"></div></div>`;
+	}
+
+	// Tiny neutral trend line (shape only — the bar above carries current value).
+	// history: [[step, corruption, welfare, unrest], ...]; col = 1|2|3.
+	function dashSpark(history, col) {
+	  if (!history || history.length < 2) return "";
+	  let w = 240, h = 20, n = history.length;
+	  let pts = history.map((r, i) =>
+	    `${(i / (n - 1) * w).toFixed(1)},${(h - 2 - Math.max(0, Math.min(1, r[col])) * (h - 4)).toFixed(1)}`
+	  ).join(" ");
+	  let s0 = history[0][0], s1 = history[n - 1][0];
+	  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" class="mt-0.5 block">
+	    <title>steps ${s0}–${s1}</title>
+	    <polyline points="${pts}" fill="none" stroke="#94a3b8" stroke-width="1.5"
+	      stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 	}
 
 	let dash_last = -999;
@@ -960,21 +1075,41 @@
 	  let host = document.getElementById("dash_metrics");
 	  if (host) {
 	    let html = "";
+	    // sparkline column index in history rows for the three tracked indices
+	    let sparkCol = {"corruption_index": 1, "welfare_score": 2, "unrest": 3};
 	    DASH_METRICS.forEach(m => {
 	      let v = d[m.key];
 	      if (v === null || v === undefined) return;
 	      let tgt = m.tkey != null ? d[m.tkey] : null;
 	      let tgtStr = (tgt !== null && tgt !== undefined)
 	        ? `<span class="text-slate-400">→ ${(+tgt).toFixed(2)}</span>` : "";
+	      let spark = sparkCol[m.key] ? dashSpark(d.history, sparkCol[m.key]) : "";
 	      html += `<div>
 	        <div class="flex items-baseline justify-between text-[13px]">
 	          <span class="font-medium text-ink">${m.label}</span>
 	          <span class="font-mono text-ink">${(+v).toFixed(3)} ${tgtStr}</span>
 	        </div>
 	        ${dashBar(v, m.bad)}
+	        ${spark}
 	        <div class="text-[10px] font-mono text-slate-400 mt-0.5 break-words">${m.formula}</div>
 	      </div>`;
 	    });
+	    // Raw memory masses (mem2): what the classifier actually sees. Not 0-1,
+	    // so rendered as a text row instead of a bar.
+	    if (d.corr_mass != null || d.gov_mass != null || d.grv_mass != null) {
+	      let f = x => (x == null ? "–" : (+x).toFixed(0));
+	      html += `<div>
+	        <div class="flex items-baseline justify-between text-[13px]">
+	          <span class="font-medium text-ink">Memory Mass</span>
+	          <span class="font-mono text-[11px]">
+	            <span class="text-rose-600">corr ${f(d.corr_mass)}</span> ·
+	            <span class="text-emerald-600">gov ${f(d.gov_mass)}</span> ·
+	            <span class="text-amber-600">grv ${f(d.grv_mass)}</span>
+	          </span>
+	        </div>
+	        <div class="text-[10px] font-mono text-slate-400 mt-0.5 break-words">Σ poignancy·0.5^(age/168h) of classified memories, 14-day window</div>
+	      </div>`;
+	    }
 	    host.innerHTML = html || `<div class="text-xs text-slate-400">no metrics for this step</div>`;
 	  }
 

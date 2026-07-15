@@ -14,6 +14,12 @@ sys.path.append('../')
 # Conversations run up to this many back-and-forth turns. Lower = cheaper steps.
 _CONVO_MAX_TURNS = int(os.environ.get("CONVO_MAX_TURNS", 4))
 
+# Fraction of TIER-2 conversations routed to the abliterated 4B instead of the
+# 27B. The tier cap freed the 4B (idle, ~59 tok/s) while the shared 27B is
+# saturated by conversation volume; routing a share of Tier-2 chats to the 4B
+# uses its headroom AND gives those chats the uncensored model. 0 = off.
+_CONVO_4B_FRACTION = float(os.environ.get("CONVO_4B_FRACTION", 0.0))
+
 from global_methods import *
 
 from persona.memory_structures.spatial_memory import *
@@ -219,19 +225,32 @@ def agent_chat_v3(maze, init_persona, target_persona):
               f"{init_persona.scratch.name} initiates a conversation with "
               f"{target_persona.scratch.name}.")
 
-  retrieved_init = new_retrieve(init_persona, [f"{target_persona.scratch.name}"], 50)
-  rel_init = generate_summarize_agent_relationship(init_persona, target_persona, retrieved_init)
-  retrieved_target = new_retrieve(target_persona, [f"{init_persona.scratch.name}"], 50)
-  rel_target = generate_summarize_agent_relationship(target_persona, init_persona, retrieved_target)
+  # Load-balance: route a share of Tier-2 conversations to the idle abliterated
+  # 4B (uses its headroom + uncensored). Override the thread-local tier for this
+  # conversation only, then restore so the rest of move() uses the real tier.
+  _route_4b = (getattr(init_persona.scratch, "agent_tier", 2) == 2
+               and _CONVO_4B_FRACTION > 0 and random.random() < _CONVO_4B_FRACTION)
+  if _route_4b:
+    from persona.prompt_template.gpt_structure import set_persona_tier
+    set_persona_tier(1)
+  try:
+    retrieved_init = new_retrieve(init_persona, [f"{target_persona.scratch.name}"], 50)
+    rel_init = generate_summarize_agent_relationship(init_persona, target_persona, retrieved_init)
+    retrieved_target = new_retrieve(target_persona, [f"{init_persona.scratch.name}"], 50)
+    rel_target = generate_summarize_agent_relationship(target_persona, init_persona, retrieved_target)
 
-  salient_init = _salient_memories(init_persona)
-  salient_target = _salient_memories(target_persona)
+    salient_init = _salient_memories(init_persona)
+    salient_target = _salient_memories(target_persona)
 
-  convo = run_gpt_generate_whole_chat(
-      maze, init_persona, target_persona,
-      retrieved_init, retrieved_target, rel_init, rel_target,
-      curr_context, max_turns=_CONVO_MAX_TURNS,
-      salient_init=salient_init, salient_target=salient_target)
+    convo = run_gpt_generate_whole_chat(
+        maze, init_persona, target_persona,
+        retrieved_init, retrieved_target, rel_init, rel_target,
+        curr_context, max_turns=_CONVO_MAX_TURNS,
+        salient_init=salient_init, salient_target=salient_target)
+  finally:
+    if _route_4b:
+      from persona.prompt_template.gpt_structure import set_persona_tier
+      set_persona_tier(getattr(init_persona.scratch, "agent_tier", 2))
   return convo
 
 

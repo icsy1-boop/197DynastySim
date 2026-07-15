@@ -12,7 +12,7 @@ Media access levels (derived from role/education/social_class):
   1 — Basic access: radio, community bulletin board
   0 — No regular access: relies entirely on word of mouth
 """
-import datetime, logging, random
+import os, datetime, logging, random
 from collections import defaultdict
 
 logger = logging.getLogger(__name__)
@@ -58,16 +58,18 @@ def media_access_level(row):
     if role in _ROLE_ACCESS:
         return _ROLE_ACCESS[role]
 
-    edu = int(row.get("education_level", 1))
-    sc  = row.get("social_class", "lower").strip().lower()
+    try:
+        edu = int(row.get("education_level", 1))
+    except (TypeError, ValueError):
+        edu = 1
+    sc  = (row.get("social_class", "lower") or "lower").strip().lower()
 
+    # Deterministic (no RNG): the control and anti-dynasty arms must not
+    # differ in who hears the news by coin flip.
     if edu >= 4 and sc in ("middle", "upper"):
         return 2
-    if edu >= 3 or sc == "upper":
+    if edu >= 2 or sc == "upper":
         return 1
-    if edu >= 2:
-        # 40% chance of basic radio access
-        return 1 if random.random() < 0.4 else 0
     return 0
 
 
@@ -109,27 +111,35 @@ def generate_news_bulletin(personas, world_metrics, curr_time, context_notes="")
     community_snippets = _sample_community_thoughts(personas)
     snippets_text = "\n".join(f"  - {s}" for s in community_snippets) or "  (no data)"
 
-    corruption = world_metrics.get("corruption_index", 0.5)
-    welfare    = world_metrics.get("welfare_score", 0.5)
-    unrest     = world_metrics.get("unrest", 0.3)
     recent_events = world_metrics.get("recent_events") or []
     events_text = ("\n".join(f"  - {e}" for e in recent_events[-3:])
                    if recent_events else "  (none)")
 
-    def describe(val, low, mid, high):
-        if val < 0.33: return low
-        if val < 0.66: return mid
-        return high
+    # The bulletin is written from what the JOURNALIST actually carries in
+    # memory (what they witnessed, exposed, heard), not from the world-metric
+    # numbers — otherwise the metric feeds the narrative that feeds the metric.
+    journalist_mems = []
+    journalist_name = None
+    for name, p in personas.items():
+        if "journalist" in str(getattr(p.scratch, "role", "")).lower() or \
+           "journalist" in str(getattr(p.scratch, "learned", "")).lower():
+            journalist_name = name
+            try:
+                from persona.cognitive_modules.converse import _salient_memories
+                journalist_mems = _salient_memories(p, k=6, window_hours=336)
+            except Exception:
+                journalist_mems = []
+            break
+    mems_text = ("\n".join(f"  - {m}" for m in journalist_mems)
+                 if journalist_mems else "  (a quiet week — nothing major witnessed)")
 
     prompt = f"""\
-You are a barangay radio announcer. Today is {curr_time.strftime("%B %d, %Y")}.
+You are {journalist_name or 'the local journalist'}, preparing the barangay radio news bulletin. Today is {curr_time.strftime("%B %d, %Y")}.
 
-Current community conditions:
-- Corruption level: {describe(corruption, 'low', 'moderate', 'high')} ({corruption:.2f})
-- Community welfare: {describe(welfare, 'poor', 'fair', 'good')} ({welfare:.2f})
-- Social tension: {describe(unrest, 'calm', 'tense', 'volatile')} ({unrest:.2f})
+What you, the journalist, have personally witnessed, verified, or been told recently:
+{mems_text}
 
-Recent notable events:
+Stories already published / notable recent events:
 {events_text}
 
 What community members are talking about:
@@ -137,9 +147,9 @@ What community members are talking about:
 
 Additional context: {context_notes if context_notes else 'None.'}
 
-Write a 3-4 sentence local radio news bulletin that a barangay resident would hear.
-Cover local government, community events, or daily life. Be specific and grounded.
-Do not make up names of people — refer to roles and events generally.
+Write a 3-4 sentence local radio news bulletin that a barangay resident would hear,
+grounded ONLY in the material above. Cover local government, community events, or
+daily life. You may name officials that appear in your material; do not invent names.
 Output only the bulletin text, nothing else."""
 
     example = (
@@ -196,12 +206,15 @@ def broadcast_news(personas, agent_rows, world_metrics, curr_time,
 
     Returns the bulletin text.
     """
+    from barangay_mechanics import agent_memory_masses
+
     rows_by_name = {r["name"].strip(): r for r in agent_rows}
 
     bulletin = generate_news_bulletin(personas, world_metrics, curr_time, context_notes)
     logger.info(f"[NEWS] Bulletin: {bulletin[:80]}...")
 
     injected = defaultdict(int)  # access_level -> count
+    relevance_mass = float(os.environ.get("NEWS_RELEVANCE_MASS", 4.0))
 
     for name, persona in personas.items():
         row = rows_by_name.get(name, {})
@@ -227,6 +240,15 @@ def broadcast_news(personas, agent_rows, world_metrics, curr_time,
             )
             poignancy = 4
 
+        # Personal relevance: news lands harder on someone already carrying
+        # grievance/corruption memories — it confirms what they lived through.
+        try:
+            m = agent_memory_masses(persona, curr_time)
+            if (m["grievance"] + m["corruption"]) >= relevance_mass:
+                poignancy = min(9, poignancy + 2)
+        except Exception:
+            pass
+
         _add_memory(persona, text, curr_time, poignancy=poignancy,
                     s=name, p="heard news about", o="local government",
                     keywords={"news", "barangay", "broadcast"})
@@ -245,18 +267,22 @@ def broadcast_news(personas, agent_rows, world_metrics, curr_time,
 # ---------------------------------------------------------------------------
 
 def _add_memory(persona, text, curr_time, poignancy, s, p, o, keywords):
+    """Inject one memory; SKIP (never zero-vector) if embedding fails — a zero
+    vector would poison cosine retrieval for every later query."""
     try:
         from persona.prompt_template.gpt_structure import get_embedding
-        expiration = curr_time + datetime.timedelta(days=14)
         try:
             emb = get_embedding(text)
-        except Exception:
-            emb = [0.0] * 768
-        embedding_pair = (text, emb)
+        except Exception as e:
+            logger.warning(f"[NEWS] embedding failed, memory skipped: {e}")
+            return False
+        expiration = curr_time + datetime.timedelta(days=14)
         persona.a_mem.add_thought(
             curr_time, expiration, s, p, o,
             text, set(keywords), poignancy,
-            embedding_pair, []
+            (text, emb), []
         )
+        return True
     except Exception as e:
         logger.warning(f"[NEWS] Memory injection failed for {persona.scratch.name}: {e}")
+        return False

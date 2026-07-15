@@ -43,13 +43,12 @@ from global_methods import *
 from utils import *
 from maze import *
 from persona.persona import *
-from barangay_mechanics import (inject_dynasty_memories, log_corruption_step,
+from barangay_mechanics import (log_corruption_step,
                                 load_agent_rows, load_world_metrics, save_world_metrics)
 from barangay_election import (run_election, poll_political_intentions,
                                announce_election, finalize_candidacy)
 from barangay_news import broadcast_news
-from barangay_corruption_events import step_corruption_events
-from barangay_governance_events import step_governance_events
+from barangay_official_decisions import step_official_decisions
 from barangay_unrest import step_unrest
 from barangay_survey import conduct_survey
 
@@ -67,8 +66,7 @@ _ANTIDYNASTY = os.environ.get("ANTIDYNASTY", "0") == "1"
 # for short test runs, e.g. ELECTION_MONTH=168 ELECTION_WEEK=48 ELECTION_STEP=336).
 _MONTH = int(os.environ.get("ELECTION_MONTH", 720))   # announce lead / poll cadence
 _WEEK  = int(os.environ.get("ELECTION_WEEK", 168))    # weekly cadence (news/candidacy/survey)
-_CORRUPTION_INTERVAL = int(os.environ.get("CORRUPTION_INTERVAL", 48))  # ~2 sim-days
-_GOVERNANCE_INTERVAL = int(os.environ.get("GOVERNANCE_INTERVAL", 48))  # ~2 sim-days
+_DECISION_INTERVAL = int(os.environ.get("DECISION_INTERVAL", 48))      # ~2 sim-days
 _PROTEST_INTERVAL = int(os.environ.get("PROTEST_INTERVAL", 72))        # ~3 sim-days
 # Output directory for corruption logs and CSV exports
 _BARANGAY_OUTPUT = os.path.abspath(
@@ -181,13 +179,13 @@ class ReverieServer:
       self.maze.tiles[p_y][p_x]["events"].add(curr_persona.scratch
                                               .get_curr_event_and_desc())
 
-    # BARANGAY: Load agent rows for corruption tracking and inject dynasty bonds.
+    # BARANGAY: Load agent rows for corruption tracking.
     # barangay_agent_rows: dict {name: row} used by log_corruption_step
     # barangay_agent_list: list of rows used by election/news functions
+    # (dynasty bonds are seeded at bootstrap by barangay_init — the old
+    #  inject_dynasty_memories runtime call was broken and redundant)
     self.barangay_agent_rows = load_agent_rows(_BARANGAY_CSV)
     self.barangay_agent_list = list(self.barangay_agent_rows.values())
-    if self.barangay_agent_rows:
-      inject_dynasty_memories(self.personas, _BARANGAY_CSV)
 
     # REVERIE SETTINGS PARAMETERS:
     # <server_sleep> denotes the amount of time that our while loop rests each
@@ -199,6 +197,15 @@ class ReverieServer:
     # welfare/unrest state accumulates across autosaves and VM reboots instead of
     # resetting every restart.
     self._metrics_dir = f"{sim_folder}/reverie"
+
+    # Per-sim persona .md store. The old shared backend_server/personas/ dir
+    # leaked election role changes across sims (a fresh fork got re-seeded with
+    # a previous sim's demotions at its first day-boundary reload). Seed one
+    # editable .md per agent so the hand-steering feature (edit role/identity/
+    # attributes -> applied at the next sim-day) works from step 0.
+    import persona_md
+    persona_md.set_md_dir(f"{sim_folder}/personas_md")
+    persona_md.seed_md(self.personas, self.barangay_agent_rows)
     self._world_metrics = load_world_metrics(self._metrics_dir)
     # persistent corruption from active corruption events; restored from disk.
     self._corruption_event_bonus = float(self._world_metrics.get("event_bonus", 0.0))
@@ -580,45 +587,25 @@ class ReverieServer:
             broadcast_news(self.personas, self.barangay_agent_list,
                            world_metrics, self.curr_time, context_notes)
 
-          # Active corruption events — greedy officials may act corruptly; the
-          # population hears about it (memory -> election), and it raises the
-          # world corruption index that the news bulletin reflects.
-          if (self.step > 0 and self.step % _CORRUPTION_INTERVAL == 0
+          # Emergent corruption & governance. Each seated official DECIDES (LLM,
+          # forced onto the uncensored Tier-1 model) whether to act corruptly,
+          # honestly, or do nothing — given their traits, top-of-mind memories,
+          # and the current risk (watchdogs, election proximity). The acts become
+          # memories that spread and that the world metrics READ OUT; there are no
+          # hardcoded corruption/welfare deltas anymore.
+          if (self.step > 0 and self.step % _DECISION_INTERVAL == 0
               and self.barangay_agent_rows):
             try:
-              _n, _exp, _d = step_corruption_events(
-                  self.personas, self.barangay_agent_list, self.curr_time)
-              if _d:
-                # Accumulate persistently (capped) so the next 10-step recompute
-                # folds it into the baseline rather than discarding it.
-                self._corruption_event_bonus = min(
-                    0.5, self._corruption_event_bonus + _d)
-                self._world_metrics["event_bonus"] = self._corruption_event_bonus
-                _cur = self._world_metrics.get("corruption_index", 0.5)
-                self._world_metrics["corruption_index"] = min(1.0, _cur + _d)
+              _c, _h, _exp, _amp, _headlines = step_official_decisions(
+                  self.personas, self.barangay_agent_list, self.curr_time,
+                  corruption_level=self._world_metrics.get("corruption_index", 0.5),
+                  steps_to_election=(_ELECTION_STEP - self.step))
+              if _headlines:
+                _ev = self._world_metrics.setdefault("recent_events", [])
+                _ev.extend(_headlines)
+                self._world_metrics["recent_events"] = _ev[-3:]
             except Exception as _e:
-              print(f"[CORRUPTION] tick failed: {_e}", flush=True)
-
-          # Good governance — the recovery path. Well-meaning officials (high
-          # integrity, low greed) deliver services and reforms: welfare rises,
-          # corruption falls (reform can pull event_bonus negative, below the
-          # trait/dynasty baseline), and residents who hear credit them (-> votes).
-          if (self.step > 0 and self.step % _GOVERNANCE_INTERVAL == 0
-              and self.barangay_agent_rows):
-            try:
-              _gn, _amp, _wd, _cd = step_governance_events(
-                  self.personas, self.barangay_agent_list, self.curr_time)
-              if _cd:  # negative: reform reduces accumulated corruption
-                self._corruption_event_bonus = max(
-                    -0.3, self._corruption_event_bonus + _cd)
-                self._world_metrics["event_bonus"] = self._corruption_event_bonus
-                _cur = self._world_metrics.get("corruption_index", 0.5)
-                self._world_metrics["corruption_index"] = max(0.0, _cur + _cd)
-              if _wd:  # immediate welfare lift from delivered services
-                _w = self._world_metrics.get("welfare_score", 0.5)
-                self._world_metrics["welfare_score"] = min(1.0, _w + _wd)
-            except Exception as _e:
-              print(f"[GOVERNANCE] tick failed: {_e}", flush=True)
+              print(f"[DECISION] tick failed: {_e}", flush=True)
 
           # Unrest-driven protests — when integrated unrest is high, residents
           # protest: anti-incumbent memories (-> votes) + a news flash. Closes

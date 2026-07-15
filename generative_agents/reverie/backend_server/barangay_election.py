@@ -18,7 +18,7 @@ Anti-dynasty mode (ANTIDYNASTY=1): after vote counting, if a winner's family_id
 already holds an elected seat this election cycle, the seat passes to the next
 highest vote-getter from a different family.
 """
-import os, datetime, logging, math
+import os, random, datetime, logging, math
 from collections import Counter, defaultdict
 
 logger = logging.getLogger(__name__)
@@ -34,13 +34,7 @@ ELECTED_POSITIONS = {
     "barangay_kagawad": 7,
 }
 
-OFFICIAL_ROLES = {
-    "mayor", "vice_mayor", "councilor",
-    "barangay_captain", "barangay_kagawad", "barangay_treasurer",
-    "barangay_secretary", "municipal_engineer", "municipal_budget_officer",
-    "municipal_treasurer", "procurement_officer", "business_permit_officer",
-    "disaster_officer", "social_welfare_officer",
-}
+from barangay_roles import OFFICIAL_ROLES
 
 # Roles whose current holders are automatically eligible candidates
 INCUMBENT_ELIGIBLE = {
@@ -461,21 +455,26 @@ Your memories and reflections about these candidates:
 Based on your personal experiences, interactions, family ties, and reflections,
 who do you vote for as {position}?
 
-Reply with ONLY the full name of your chosen candidate — no explanation."""
+Reply with ONLY the full name of your chosen candidate — no explanation.
+If you truly have no basis or faith in any of these candidates, you may reply ABSTAIN."""
 
     example_output = candidate_names[0]
     special_instruction = (
         f"Reply with ONLY the exact full name of one candidate from this list: "
-        f"{', '.join(candidate_names)}. Do not add any other text."
+        f"{', '.join(candidate_names)} — or the single word ABSTAIN. "
+        f"Do not add any other text."
     )
 
     valid_names_lower = {c.lower() for c in candidate_names}
 
     def validate(resp, prompt=""):
-        return resp.strip().lower() in valid_names_lower
+        r = resp.strip().lower()
+        return r in valid_names_lower or r == "abstain"
 
     def clean_up(resp, prompt=""):
         resp = resp.strip()
+        if resp.lower() == "abstain":
+            return "ABSTAIN"
         # Match case-insensitively back to the original name
         for c in candidate_names:
             if c.lower() == resp.lower():
@@ -488,6 +487,9 @@ Reply with ONLY the full name of your chosen candidate — no explanation."""
     )
     chosen = result if result else fail_safe_name
 
+    if chosen == "ABSTAIN":
+        return chosen, f"{voter.scratch.name} chose not to vote for {position}."
+
     # Build reason for memory
     mems = _retrieve_candidate_memories(voter, chosen, curr_time, max_n=2)
     reason = mems[0] if mems else f"{voter.scratch.name} voted based on personal judgment."
@@ -495,24 +497,41 @@ Reply with ONLY the full name of your chosen candidate — no explanation."""
     return chosen, reason
 
 
+_VOTE_WORKERS = int(os.environ.get("ELECTION_VOTE_WORKERS", 24))
+
+
 def collect_votes(personas, candidates, agent_rows, curr_time):
     """
-    Each eligible voter casts a vote for each position via LLM.
+    Each eligible voter casts a vote for each position via LLM (voters run in
+    parallel — serially this was ~2000 calls in a Python loop). ABSTAIN is a
+    valid emergent outcome. On LLM failure the fail-safe is memory-derived:
+    family candidate first, else the candidate this voter's own memories trust
+    most (barangay_mechanics.name_trust), else a random candidate — never
+    "first name in the list".
     Returns dict {position -> Counter({candidate_name: vote_count})}
     """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from barangay_mechanics import name_trust
+
     rows_by_name = {r["name"].strip(): r for r in agent_rows}
     vote_counts = {pos: Counter() for pos in candidates}
     vote_memories = []   # (voter_name, position, chosen, reason)
+    n_abstain = 0
 
+    all_candidate_names = sorted({c for cl in candidates.values() for c in cl})
+
+    voters = []
     for name, persona in personas.items():
         row = rows_by_name.get(name, {})
         role = getattr(persona.scratch, "role", row.get("role", ""))
         age = int(float(row.get("age", 0)))
+        if age >= MIN_VOTING_AGE and role not in NON_VOTER_ROLES:
+            voters.append((name, persona))
 
-        # Eligibility check
-        if age < MIN_VOTING_AGE or role in NON_VOTER_ROLES:
-            continue
-
+    def vote_one(name, persona):
+        row = rows_by_name.get(name, {})
+        trust = name_trust(persona, all_candidate_names, curr_time)
+        results = []
         for position, cnames in candidates.items():
             if not cnames:
                 continue
@@ -522,15 +541,36 @@ def collect_votes(personas, candidates, agent_rows, curr_time):
                 c for c in cnames
                 if rows_by_name.get(c, {}).get("family_id") == voter_fam and c != name
             ]
-
-            # Fail-safe: prefer family candidate, else first candidate
-            fail_safe = family_candidates[0] if family_candidates else cnames[0]
+            if family_candidates:
+                fail_safe = family_candidates[0]
+            else:
+                scored = sorted(((trust.get(c, 0.0), c) for c in cnames),
+                                reverse=True)
+                fail_safe = scored[0][1] if scored[0][0] > 0 else random.choice(cnames)
 
             chosen, reason = _vote_for_position(
                 persona, cnames, position, curr_time, fail_safe
             )
-            vote_counts[position][chosen] += 1
-            vote_memories.append((name, position, chosen, reason))
+            results.append((position, chosen, reason))
+        return name, results
+
+    with ThreadPoolExecutor(max_workers=_VOTE_WORKERS) as executor:
+        futures = {executor.submit(vote_one, n, p): n for n, p in voters}
+        for future in as_completed(futures):
+            try:
+                name, results = future.result()
+            except Exception as e:
+                logger.warning(f"[ELECTION] vote failed for {futures[future]}: {e}")
+                continue
+            for position, chosen, reason in results:
+                if chosen == "ABSTAIN":
+                    n_abstain += 1
+                    continue
+                vote_counts[position][chosen] += 1
+                vote_memories.append((name, position, chosen, reason))
+
+    if n_abstain:
+        print(f"[ELECTION] {n_abstain} position-votes were abstentions")
 
     # Inject voting memories
     for voter_name, position, chosen, reason in vote_memories:
@@ -703,18 +743,22 @@ def run_election(personas, agent_rows, antidynasty=False, curr_time=None,
 # ---------------------------------------------------------------------------
 
 def _add_memory(persona, text, curr_time, poignancy, s, p, o, keywords):
+    """Inject one memory; SKIP (never zero-vector) if embedding fails — a zero
+    vector would poison cosine retrieval for every later query."""
     try:
         from persona.prompt_template.gpt_structure import get_embedding
-        expiration = curr_time + datetime.timedelta(days=30)
         try:
             emb = get_embedding(text)
-        except Exception:
-            emb = [0.0] * 768
-        embedding_pair = (text, emb)
+        except Exception as e:
+            logger.warning(f"[ELECTION] embedding failed, memory skipped: {e}")
+            return False
+        expiration = curr_time + datetime.timedelta(days=30)
         persona.a_mem.add_thought(
             curr_time, expiration, s, p, o,
             text, set(keywords), poignancy,
-            embedding_pair, []
+            (text, emb), []
         )
+        return True
     except Exception as e:
         logger.warning(f"[ELECTION] Memory injection failed for {persona.scratch.name}: {e}")
+        return False

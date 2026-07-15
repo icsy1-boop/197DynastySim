@@ -395,19 +395,33 @@ def sim_metrics(request):
     with open(f"{base}/world_metrics.json") as f:
       wm = json.load(f)
 
-  # Step-accurate numeric metrics from the per-step log when scrubbing.
+  # Step-accurate numeric metrics from the per-step log when scrubbing, plus a
+  # thinned full history for the dashboard sparklines.
   hist = None
+  history = []
   clog = f"{base}/corruption_log.csv"
-  if step >= 0 and check_if_file_exists(clog):
+  if check_if_file_exists(clog):
     try:
       import csv as _csv
       with open(clog) as f:
         rows = list(_csv.DictReader(f))
-      below = [r for r in rows if r.get("step", "").isdigit() and int(r["step"]) <= step]
-      if below:
-        hist = below[-1]
+      rows = [r for r in rows if r.get("step", "").isdigit()]
+      if step >= 0:
+        below = [r for r in rows if int(r["step"]) <= step]
+        if below:
+          hist = below[-1]
+      stride = max(1, len(rows) // 100)   # cap ~100 points
+      for r in rows[::stride]:
+        try:
+          history.append([int(r["step"]),
+                          float(r.get("corruption_index") or 0),
+                          float(r.get("welfare") or 0),
+                          float(r.get("unrest") or 0)])
+        except (TypeError, ValueError):
+          pass
     except Exception:
       hist = None
+      history = []
 
   def pick(hist_key, wm_key):
     if hist is not None and hist.get(hist_key) not in (None, ""):
@@ -421,12 +435,19 @@ def sim_metrics(request):
     "dynasty_bonus":    pick("dynasty_bonus", "dynasty_bonus"),
     "welfare_score":    pick("welfare", "welfare_score"),
     "unrest":           pick("unrest", "unrest"),
+    # mem2 memory-readout components (new sims; absent on old logs)
+    "corr_mass":        pick("corr_mass", "corr_mass"),
+    "gov_mass":         pick("gov_mass", "gov_mass"),
+    "grv_mass":         pick("grv_mass", "grv_mass"),
+    "aggrieved_share":  pick("aggrieved_share", "aggrieved_share"),
     # targets / event_bonus have no per-step column; live values only
     "welfare_target":   wm.get("welfare_target"),
     "unrest_target":    wm.get("unrest_target"),
     "event_bonus":      wm.get("event_bonus"),
     "election_step":    wm.get("election_step"),
     "recent_events":    wm.get("recent_events", []),
+    # [[step, corruption, welfare, unrest], ...] thinned to ~100 points
+    "history":          history,
   }
   return JsonResponse(out)
 

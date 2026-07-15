@@ -18,7 +18,26 @@ import os, re, logging
 
 logger = logging.getLogger(__name__)
 
+# Default (legacy) location. IMPORTANT: this global dir leaked role state ACROSS
+# sims — one sim's election demotions re-seeded every later sim at its first
+# day-boundary reload (the mtime cache is empty on process start, so every .md
+# counted as "changed"). reverie now calls set_md_dir(<sim_folder>/personas_md)
+# at startup so each sim reads/writes only its own .md files.
 PERSONAS_DIR = os.path.join(os.path.dirname(__file__), "personas")
+_md_dir = PERSONAS_DIR
+
+
+def set_md_dir(path):
+    """Point the .md store at a per-sim directory (called by reverie at init).
+    Fresh forks start empty — no cross-sim carry-over; the sim's own elections
+    (and manual edits) populate it."""
+    global _md_dir
+    _md_dir = path
+    try:
+        os.makedirs(path, exist_ok=True)
+    except Exception as e:
+        logger.warning(f"[MD] could not create md dir {path}: {e}")
+    _last_mtime.clear()
 
 # Section title (in the .md) -> Scratch attribute it maps to.
 _MD_SECTIONS = {
@@ -41,7 +60,7 @@ _last_mtime = {}
 
 
 def _md_path(name):
-    return os.path.join(PERSONAS_DIR, f"{name}.md")
+    return os.path.join(_md_dir, f"{name}.md")
 
 
 def _role_schedule(role):
@@ -54,6 +73,25 @@ def _role_schedule(role):
     except Exception:
         return ("follows a typical daily routine based on their role.",
                 "barangay_mabuhay")
+
+
+def seed_md(personas, agent_rows_by_name):
+    """Ensure every persona has an editable .md in the current md dir — the
+    .md is the hand-editable source of truth for role/identity/attributes, so
+    a fresh fork (empty per-sim dir) must expose one file per agent from step
+    0. Existing files are left untouched (they may carry the sim's own election
+    write-backs or manual edits)."""
+    n = 0
+    for name, persona in personas.items():
+        try:
+            if not os.path.exists(_md_path(name)):
+                write_md(persona, agent_rows_by_name.get(name))
+                n += 1
+        except Exception as e:
+            logger.warning(f"[MD] seed failed for {name}: {e}")
+    if n:
+        print(f"[MD] seeded {n} editable persona .md files in {_md_dir}", flush=True)
+    return n
 
 
 def apply_role(persona, row, new_role):

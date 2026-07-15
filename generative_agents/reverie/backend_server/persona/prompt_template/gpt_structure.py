@@ -6,6 +6,7 @@ endpoint on VM A (10.158.24.216:8002) instead of local sentence-transformers.
 """
 import json
 import os
+import random
 import re
 import threading
 
@@ -58,6 +59,14 @@ _embed_client = OpenAI(api_key="ollama", base_url=f"{embedding_endpoint}/v1",
 # Thread-local tier routing.
 _tier_local = threading.local()
 
+# Load-balance: send this fraction of ALL Tier-2 calls (daily plans, conversations,
+# triples, poignancy, reflections) to the abliterated 4B instead of the 27B. The
+# tier cap freed the 4B (idle, ~61 tok/s) while the shared 27B is the bottleneck,
+# especially during daily-planning (step 0 / every 24 steps) which floods it with
+# ~788 Tier-2 plan calls. Plans/triples don't need censorship, so this is safe and
+# directly relieves the 27B. Env-tunable; 0 = off.
+_TIER2_TO_4B = float(os.environ.get("TIER2_TO_4B_FRACTION", 0.0))
+
 def set_persona_tier(tier: int):
   _tier_local.agent_tier = tier
 
@@ -71,7 +80,11 @@ def _get_client_and_model():
   tier = getattr(_tier_local, 'force_tier', None)
   if tier is None:
     tier = getattr(_tier_local, 'agent_tier', 2)
-  if tier == 1 and _client_abliterated is not None and _abliterated_model:
+  _have_4b = _client_abliterated is not None and _abliterated_model
+  if tier == 1 and _have_4b:
+    return _client_abliterated, _abliterated_model
+  if (tier == 2 and _have_4b and _TIER2_TO_4B > 0
+      and random.random() < _TIER2_TO_4B):
     return _client_abliterated, _abliterated_model
   return _client, qwen_model
 
@@ -122,13 +135,16 @@ def GPT4_request(prompt):
     return "ChatGPT ERROR"
 
 
-def ChatGPT_request(prompt):
+def ChatGPT_request(prompt, max_tokens=None):
   try:
     client, model = _get_client_and_model()
+    kwargs = dict(_NO_THINK)
+    if max_tokens:
+      kwargs["max_tokens"] = max_tokens
     completion = client.chat.completions.create(
       model=model,
       messages=[{"role": "user", "content": prompt}],
-      **_NO_THINK
+      **kwargs
     )
     return _strip_qwen_thinking(completion.choices[0].message.content)
   except Exception as e:

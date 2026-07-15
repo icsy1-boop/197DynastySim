@@ -2930,36 +2930,57 @@ def run_gpt_generate_whole_chat(maze, init_persona, target_persona,
   curr_arena  = f"{maze.access_tile(init_persona.scratch.curr_tile)['arena']}"
   location = f"{curr_arena} in {curr_sector}"
 
+  def register_hint(persona):
+    # Map the persona's home neighborhood/class to a speech-register cue so the
+    # LLM code-switches instead of making everyone sound the same.
+    s = (getattr(persona.scratch, "living_area", "") or "").lower()
+    if "residential c" in s or "shanty" in s or "slum" in s:
+      return ("from the slums (informal settlement / iskwater): speaks casually "
+              "and bluntly, mixes Taglish/Bisaya and street slang, little formality")
+    if "residential a" in s or "mansion" in s or "subdivision" in s:
+      return ("from a gated subdivision, upper class: more formal, polished, "
+              "measured English/Taglish")
+    if "residential b" in s or "condo" in s or "house interior" in s:
+      return ("from a condominium/townhouse area, middle class: conversational, "
+              "semi-formal Taglish")
+    return "an ordinary barangay resident: plain, everyday Taglish"
+
   a = init_persona.scratch.name
   b = target_persona.scratch.name
+  cap = max(96, max_turns * 2 * 60)   # bound output length (~60 tok/line)
   prompt = (
     f"Two people meet and talk. Write how they would really speak.\n\n"
     f"--- {a} ---\n{init_persona.scratch.get_str_iss()}\n"
+    f"Background/speech: {register_hint(init_persona)}\n"
     f"How {a} sees {b}: {rel_init}\n"
     f"On {a}'s mind lately:\n{salient_str(salient_init)}\n"
     f"What {a} recalls relevant to {b}:\n{mem_str(retrieved_init)}\n\n"
     f"--- {b} ---\n{target_persona.scratch.get_str_iss()}\n"
+    f"Background/speech: {register_hint(target_persona)}\n"
     f"How {b} sees {a}: {rel_target}\n"
     f"On {b}'s mind lately:\n{salient_str(salient_target)}\n"
     f"What {b} recalls relevant to {a}:\n{mem_str(retrieved_target)}\n\n"
     f"Context: {curr_context}\n"
     f"They are at {location}.\n\n"
     f"Write their full conversation. {a} speaks first, then they alternate "
-    f"strictly. Speak the way these two genuinely would given who they are and "
-    f"what is on their mind. If something weighing on them is relevant "
-    f"(corruption, scandals, hardship, broken services, distrust of officials), "
-    f"let their real feelings show — frustration or anger for those hurt by it, "
-    f"defensiveness or dismissal for those who benefit. Don't force politeness; "
-    f"don't invent facts beyond what they know. At most {max_turns} turns each "
-    f"(up to {max_turns*2} lines total); end naturally sooner if it has run its "
-    f"course.\n"
+    f"strictly. Speak the way these two genuinely would given who they are, "
+    f"their class/neighborhood, and what is on their mind — match each person's "
+    f"register (slum residents casual and code-switching; officials and "
+    f"upper-class residents more formal); don't make them sound the same. If "
+    f"something weighing on them is relevant (corruption, scandals, hardship, "
+    f"broken services, distrust of officials), let their real feelings show — "
+    f"frustration or anger for those hurt by it, defensiveness or dismissal for "
+    f"those who benefit. Don't force politeness; don't invent facts beyond what "
+    f"they know. Keep each line to roughly one or two sentences. At most "
+    f"{max_turns} turns each (up to {max_turns*2} lines total); end naturally "
+    f"sooner if it has run its course.\n"
     f"Output ONLY the dialogue, one line per turn, in exactly this format:\n"
     f"{a}: <what they say>\n{b}: <what they say>\n"
     f"Write nothing except these lines."
   )
   if verbose:
     print(prompt)
-  raw = ChatGPT_request(prompt)
+  raw = ChatGPT_request(prompt, max_tokens=cap)
   return _parse_whole_chat(raw, a, b, max_turns)
 
 

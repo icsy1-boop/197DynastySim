@@ -82,6 +82,24 @@
 								class="px-2 py-1 rounded-md bg-slate-200 text-ink text-sm hover:bg-slate-300 transition">&#8250;</button>
 			</div>
 		</div>
+
+		<!-- Agent lookup: type/select a name -> camera focuses + selects them -->
+		<div class="mt-3 {% if mode == 'simulate' %}hidden{% endif %}">
+			<label class="flex items-center gap-1.5 text-xs text-slate-500">
+				Find&nbsp;agent
+				<input id="agent_search" list="agent_names_list" placeholder="Type a name&hellip;" autocomplete="off"
+							 class="flex-1 min-w-0 rounded-md border border-slate-200 bg-white text-ink text-sm px-2 py-1 focus:outline-none focus:ring-1 focus:ring-accent" />
+				<button id="agent_go" type="button"
+								class="px-2.5 py-1 rounded-md bg-accent text-white text-sm font-medium hover:bg-indigo-500 transition">Find</button>
+			</label>
+			<datalist id="agent_names_list"></datalist>
+			<div id="agent_search_msg" class="mt-1 text-[11px] text-rose-500 hidden">No agent by that name in this step.</div>
+			<label class="mt-2 flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer">
+				<input id="solo_convo_toggle" type="checkbox"
+							 class="accent-accent cursor-pointer" />
+				Show only the selected agent&rsquo;s conversation
+			</label>
+		</div>
 	</div>
 </div>
 

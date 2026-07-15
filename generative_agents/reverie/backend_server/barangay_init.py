@@ -70,6 +70,14 @@ SECTOR_SPAWN_POOL = _WORLD.get("sector_spawn_pool", {})
 # ---------------------------------------------------------------------------
 # Roles that count as "key" (political + enforcement) for --roles key
 # ---------------------------------------------------------------------------
+# KEY_ROLES = Tier-1 (abliterated 4B). NARROWED to the political/corruption
+# DECISION core (~106 of 500) so the slow 4B GPU isn't shared across ~215 agents:
+# only roles that make or directly enable corrupt decisions, or need uncensored
+# output (officials, municipal offices, oversight, enforcement, dynasty-adjacent,
+# pressured civil servants/clerks). The economic-orbit roles (vendors, business
+# owners, construction chain, budget-dependent professionals) move to Tier-2
+# (27B) — that endpoint already handles angry anti-corruption talk fine, so the
+# narrative isn't sanitized, and the 4B load roughly halves.
 KEY_ROLES = {
     # Elected / appointed officials
     "mayor", "vice_mayor", "councilor",
@@ -87,13 +95,6 @@ KEY_ROLES = {
     "disaster_officer",
     # Corruption-orbit: civil servants pressured by officials
     "civil_servant_admin", "clerk_office_worker",
-    # Corruption-orbit: business people paying bribes for permits/extortion
-    "business_owner", "market_stall_owner", "market_vendor", "sari_sari_store_owner",
-    "private_sector_manager",
-    # Corruption-orbit: construction chain under corrupt contractors
-    "site_supervisor", "subcontractor",
-    # Corruption-orbit: professionals dependent on government budget allocation
-    "doctor", "urban_health_nurse", "teacher",
 }
 
 # ---------------------------------------------------------------------------
